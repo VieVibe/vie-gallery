@@ -1,6 +1,25 @@
 import { expect, test } from '@playwright/test'
 import { mockGallery } from './helpers/mockGallery'
 
+test('the collection tour control follows camera settings and retains a manual pause across scene switches', async ({ page }) => {
+  await mockGallery(page, { config: {
+    layout: { mode: 'grid', params: { composition: 'curated', arrangement: 'tide' } },
+    camera: { autoRotate: false }
+  } })
+  await page.goto('/g/effects-fixture?preview=creator-fixture')
+  await page.getByRole('button', { name: '开始浏览' }).click()
+  const play = page.getByRole('button', { name: '自动漫游', exact: true })
+  const pause = page.getByRole('button', { name: '暂停漫游', exact: true })
+  await expect(play).toHaveAttribute('aria-pressed', 'false')
+  await page.evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__!.requestConfig({ camera: { autoRotate: true } }))
+  await expect(pause).toHaveAttribute('aria-pressed', 'true')
+  await pause.click()
+  const fold = page.getByRole('button', { name: '折廊', exact: true })
+  await fold.click()
+  await expect(fold).toHaveAttribute('aria-pressed', 'true')
+  await expect(play).toHaveAttribute('aria-pressed', 'false')
+})
+
 test('a share link uses its published collection even with an alternate layout in the URL', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await mockGallery(page, { config: { layout: { mode: 'helix', params: { composition: 'curated', arrangement: 'space' } } } })

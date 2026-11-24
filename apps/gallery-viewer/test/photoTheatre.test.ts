@@ -122,6 +122,22 @@ test('focus returns to the same group and replay cancels a pending modal focus',
   assert.equal(theatre.snapshot().elapsed, elapsed)
   theatre.uninstall()
 })
+
+test('suspending the stage cancels a pending lightbox in single-photo mode', () => {
+  const ctx = createViewerContext(normalizeViewerConfig({}).config, Array.from({ length: 4 }, photo))
+  const theatre = new PhotoTheatrePlugin(); theatre.install(ctx)
+  let opened = false
+  ctx.on('theatre:focused', () => { opened = true })
+  ctx.emit('theatre:command', { type: 'mode', mode: 'focus' })
+  ctx.emit('theatre:command', { type: 'focus', index: 0 })
+  ctx.emit('stage:suspend', true)
+  ctx.emit('stage:suspend', false)
+  theatre.update(2, 2)
+  assert.equal(opened, false)
+  assert.equal(theatre.snapshot().mode, 'focus')
+  theatre.uninstall()
+})
+
 test('programme completes at its final cloud without opening a modal or retaining a transition', () => {
   const ctx = createViewerContext(normalizeViewerConfig({ effects: { photoFloat: false } }).config, Array.from({ length: 30 }, photo))
   const theatre = new PhotoTheatrePlugin(); theatre.install(ctx)

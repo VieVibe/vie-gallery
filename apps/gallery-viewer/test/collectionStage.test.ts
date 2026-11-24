@@ -65,3 +65,26 @@ test('pausing the tour settles the photograph positions and camera', () => {
   assert.deepEqual(photos[0]!.position.toArray(), position)
   stage.uninstall()
 })
+
+test('live camera settings reach the collection tour without resetting a manual pause on unrelated edits', () => {
+  const { context, stage } = fixture(1440, 900, 42)
+  context.config.camera.autoRotate = false
+  context.emit('config:update', context.config)
+  for (let frame = 0; frame < 20; frame++) stage.update(.05)
+  const paused = context.camera.position.toArray()
+  for (let frame = 0; frame < 10; frame++) stage.update(.05)
+  assert.deepEqual(context.camera.position.toArray(), paused)
+
+  context.config.camera.autoRotate = true
+  context.emit('config:update', context.config)
+  for (let frame = 0; frame < 30; frame++) stage.update(.05)
+  assert.notDeepEqual(context.camera.position.toArray(), paused)
+
+  context.emit('stage:autoplay', false)
+  for (let frame = 0; frame < 20; frame++) stage.update(.05)
+  const manuallyPaused = context.camera.position.toArray()
+  context.emit('config:update', context.config)
+  for (let frame = 0; frame < 30; frame++) stage.update(.05)
+  assert.deepEqual(context.camera.position.toArray(), manuallyPaused)
+  stage.uninstall()
+})

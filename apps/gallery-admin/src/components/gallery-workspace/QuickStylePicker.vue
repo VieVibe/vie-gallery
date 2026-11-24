@@ -30,7 +30,7 @@ onMounted(load)
 <template>
   <section class="quick-styles" aria-label="选择展示风格">
     <div class="style-heading"><h2>默认展示效果</h2><span class="style-autosave"><Icon name="check" :size="13" /> 选好即保存</span></div>
-    <p class="style-intro">选一个发布后的 3D 场景。访客也可以切换。</p>
+    <p class="style-intro">访客进入空间漫游时将看到发布的场景。</p>
     <div class="style-choices">
       <button v-for="style in SPATIAL_PRESETS" :key="style.id" type="button" :class="style.id" :aria-pressed="loaded && selected === style.id" :disabled="!loaded || editor.saving.value || !canWrite" @click="choose(style.id)">
         <span class="style-miniature" aria-hidden="true">

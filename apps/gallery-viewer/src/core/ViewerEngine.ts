@@ -154,7 +154,10 @@ export class ViewerEngine {
 
     this.eventBus.on('theatre:active', this.handleTheatreActive)
     this.eventBus.on('photo:focus', () => { this.photoFocused = true })
-    this.eventBus.on('photo:blur', () => { this.photoFocused = false })
+    this.eventBus.on('photo:blur', () => {
+      if (this.photoFocused && this.introFlight?.complete) this.cancelIntroFlight()
+      this.photoFocused = false
+    })
     this.canvas.addEventListener('pointerdown', this.theatrePointerDown)
     this.canvas.addEventListener('pointerup', this.theatrePointerUp)
     this.canvas.addEventListener('pointermove', this.theatrePointerMove)

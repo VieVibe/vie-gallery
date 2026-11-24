@@ -48,6 +48,12 @@ async function closeSpatialOptions() {
   spatialOptionsButton.value?.focus({ preventScroll: true })
 }
 
+function handleSpatialOptionsEscape(event: KeyboardEvent) {
+  if (!showTheatreControls.value || event.defaultPrevented) return
+  event.stopPropagation()
+  void closeSpatialOptions()
+}
+
 async function switchExploration() {
   await sendTheatreCommand(theatre.value.active ? { type: 'exit' } : { type: 'mode', mode: 'focus' })
   await closeSpatialOptions()
@@ -217,6 +223,7 @@ async function selectStyle(mode: CuratedStyle | SpatialPreset) {
     const current = active.getRequestedConfig()
     const next = mode === 'tide' || mode === 'fold' || mode === 'space'
       ? applySpatialPreset(current, mode) : applyCuratedStyle(current, mode)
+    if (next.camera) next.camera.autoRotate = current.camera?.autoRotate ?? false
     await active.replaceConfig(next)
     if (engine !== active) return
     viewer.setAppliedConfigSnapshot(active.getRequestedConfig())
@@ -235,6 +242,7 @@ watch(viewer.isReady, ready => {
   showShareSheet.value = false
 })
 watch(() => showLightbox.value || showShareSheet.value, open => engine?.getEventBus().emit('stage:suspend', open))
+watch(showShareSheet, open => { if (open) engine?.getEventBus().emit('photo:blur') })
 const hoverTagPosition = computed(() => ({
   left: `${Math.max(12, Math.min(hoveredScreenPos.value.x + 16, window.innerWidth - 220))}px`,
   top: `${Math.max(12, Math.min(hoveredScreenPos.value.y + 16, window.innerHeight - 60))}px`
@@ -463,6 +471,7 @@ async function init3DEngine() {
     currentArrangement.value = resolvePhotoArrangement(initialConfig)
     stageActive.value = initialConfig?.layout?.params?.composition === 'curated'
     stageIndex.value = 0
+    let configuredAutoTour = initialConfig.camera?.autoRotate === true
     activeEngine.getEventBus().on('stage:change', (state: { index: number }) => { stageIndex.value = state.index })
     activeEngine.getEventBus().on('stage:open', (index: number) => openLightbox(index))
     activeEngine.getEventBus().on('stage:interaction', () => activeEngine.wakeUp())
@@ -470,8 +479,13 @@ async function init3DEngine() {
       selectedStyle.value = resolveCuratedStyle(config)
       currentArrangement.value = resolvePhotoArrangement(config)
       stageActive.value = config.layout.params?.composition === 'curated'
+      if (resolveSpatialPreset(config)) {
+        const enabled = activeEngine.getRequestedConfig().camera?.autoRotate === true
+        applyAutoTour(enabled === configuredAutoTour ? isAutoTour.value : enabled)
+        configuredAutoTour = enabled
+      }
     })
-    applyAutoTour(initialConfig?.camera?.autoRotate === true)
+    applyAutoTour(configuredAutoTour)
 
     // 监听 APM 探针
     activeEngine.getEventBus().on('metrics:update', (metrics: EngineMetrics) => {
@@ -725,6 +739,10 @@ async function handleUnlock(password: string) {
 }
 
 function openLightbox(index: number) {
+  if (showShareSheet.value) {
+    engine?.getEventBus().emit('photo:blur')
+    return
+  }
   if (index < 0 || index >= viewer.photos.value.length) return
   lightboxSession++
   lightboxIndex.value = index
@@ -883,7 +901,7 @@ function resetView() {
         <h1>{{ viewer.gallery.value?.title || '光影之间' }}</h1>
         <p>{{ viewer.total.value }} 件作品 · 摄影展览</p>
       </div>
-      <div v-if="show3dHud" class="spatial-controls" :inert="isImmersive || undefined" @keydown.esc.stop="closeSpatialOptions">
+      <div v-if="show3dHud" class="spatial-controls" :inert="isImmersive || undefined" @keydown.esc="handleSpatialOptionsEscape">
       <div v-if="showPhotoDetails" class="stage-row">
       <div class="stage-info">
         <div class="stage-counter" aria-live="polite" aria-atomic="true"><span>{{ String(currentPhotoIndex + 1).padStart(2, '0') }}</span><span aria-hidden="true">/</span><span>{{ String(viewer.photos.value.length).padStart(2, '0') }}</span></div>

@@ -49,6 +49,7 @@ export class PhotoTheatrePlugin implements ViewerPlugin {
     context.on('photos:loaded', this.photosLoaded)
     context.on('photo:texture-ready', this.textureReady)
     context.on('photo:blur', this.blur)
+    context.on('stage:suspend', this.suspend)
     context.on('config:update', this.configUpdated)
     context.on('webgl:lost', this.exit)
   }
@@ -56,7 +57,7 @@ export class PhotoTheatrePlugin implements ViewerPlugin {
     this.exit()
     for (const [event, handler] of [
       ['theatre:command', this.command], ['theatre:hover', this.hover], ['photos:loaded', this.photosLoaded], ['photo:texture-ready', this.textureReady],
-      ['photo:blur', this.blur], ['config:update', this.configUpdated], ['webgl:lost', this.exit]
+      ['photo:blur', this.blur], ['stage:suspend', this.suspend], ['config:update', this.configUpdated], ['webgl:lost', this.exit]
     ] as const) this.context?.off(event, handler)
     this.context = null
     this.book?.dispose(); this.book = null
@@ -144,6 +145,9 @@ export class PhotoTheatrePlugin implements ViewerPlugin {
     const mode = this.returnMode; this.returnMode = null; this.pendingFocus = null
     this.state.offset = this.returnOffset
     this.present(mode, .85)
+  }
+  private suspend = (suspended: boolean): void => {
+    if (suspended) this.pendingFocus = null
   }
   private hover = (index: number | null): void => {
     if (!this.state.active || this.state.mode !== 'stack' || this.state.status === 'playing' || this.state.status === 'paused') return

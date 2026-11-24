@@ -89,6 +89,7 @@ test('quick composition saves a light spatial preset and restores it on reload',
   await page.goto('/app/galleries/studio')
   await page.locator('.workspace-spatial > summary').click()
   const picker = page.locator('.quick-styles')
+  await expect(picker).toContainText('访客进入空间漫游时将看到发布的场景。')
   await expect(picker.getByRole('button')).toHaveCount(3)
   await expect(picker.getByRole('button', { name: /^潮汐/ })).toHaveAttribute('aria-pressed', 'true')
   await expect(picker.getByRole('button', { pressed: true })).toHaveCount(1)

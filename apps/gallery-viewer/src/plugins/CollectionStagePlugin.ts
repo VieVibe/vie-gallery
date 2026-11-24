@@ -16,6 +16,7 @@ export class CollectionStagePlugin implements ViewerPlugin {
   private foldBay = 0
   private time = 0
   private autoplay = false
+  private configuredAutoplay = false
   private wakeTime = 0
   private suspended = false
   private immersive = false
@@ -41,7 +42,7 @@ export class CollectionStagePlugin implements ViewerPlugin {
     this.context = context
     this.canvas = context.renderer.domElement
     this.preset = resolveSpatialPreset(context.config)!
-    this.autoplay = context.config.camera?.autoRotate ?? true
+    this.autoplay = this.configuredAutoplay = context.config.camera?.autoRotate ?? true
     this.guides.geometry.setAttribute('position', new THREE.BufferAttribute(this.lineVertices, 3).setUsage(THREE.DynamicDrawUsage))
     this.guides.frustumCulled = false
     context.addToScene(this.guides)
@@ -127,6 +128,9 @@ export class CollectionStagePlugin implements ViewerPlugin {
   }
 
   private configChanged = () => {
+    const enabled = this.context.config.camera?.autoRotate ?? true
+    if (enabled !== this.configuredAutoplay) this.setAutoplay(enabled)
+    this.configuredAutoplay = enabled
     const next = resolveSpatialPreset(this.context.config)
     if (!next || next === this.preset) return
     this.from.clear()
