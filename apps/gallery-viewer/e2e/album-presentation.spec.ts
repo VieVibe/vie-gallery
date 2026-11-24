@@ -26,6 +26,68 @@ test('new visitors see the chosen cover and can start reading without starting W
   await expect(start).toBeFocused()
 })
 
+test('the cover is visible while the first photo page and scene config are pending', async ({ page }) => {
+  await mockGallery(page, { defaultView: true })
+  let releaseDetails!: () => void
+  const details = new Promise<void>(resolve => { releaseDetails = resolve })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.route('**/api/public/g/effects-fixture', route => route.fulfill({
+    json: {
+      slug: 'effects-fixture', title: '山海之间', visibility: 'PUBLIC', accessState: 'READY', photoCount: 12,
+      cover: { url: '/fixtures/photo-4.svg', width: 1200, height: 800,
+        previewUrl: '/fixtures/photo-4-small.svg', previewWidth: 480,
+        displayUrl: '/fixtures/photo-4-display.svg', displayWidth: 960 }
+    }
+  }))
+  await page.route('**/api/public/g/effects-fixture/*', async route => {
+    await details
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/viewer-config')) return route.fallback()
+    return route.fulfill({ json: { items: [{
+      title: '岸边', width: 1200, height: 800, sortOrder: 0,
+      thumbnailUrl: '/fixtures/photo-0.svg', previewUrl: '/fixtures/photo-0-small.svg'
+    }], page: 0, pageSize: 50, total: 12 } })
+  })
+
+  try {
+    await page.goto('/g/effects-fixture', { waitUntil: 'domcontentloaded' })
+    const cover = page.locator('.album-cover img')
+    await expect.poll(() => cover.evaluateAll(nodes => {
+      const img = nodes[0] as HTMLImageElement | undefined
+      return img?.complete && img.naturalWidth > 0 ? new URL(img.currentSrc).pathname : null
+    }), { timeout: 5000 }).toBe('/fixtures/photo-4-small.svg')
+    await expect(page.getByRole('button', { name: '开始浏览' })).toBeDisabled()
+    const firstCover = await cover.elementHandle()
+    releaseDetails()
+    await expect(page.getByRole('button', { name: '开始浏览' })).toBeEnabled()
+    expect(await cover.evaluate((image, original) => image === original, firstCover)).toBe(true)
+    const photo = page.getByRole('button', { name: '查看照片 1：岸边' })
+    await expect(photo.locator('img')).toHaveAttribute('src', '/fixtures/photo-0-small.svg')
+    await photo.click()
+    await expect(page.getByRole('dialog').locator('.main-image')).toHaveAttribute('src', '/fixtures/photo-0.svg')
+  } finally {
+    releaseDetails()
+  }
+})
+
+test('the mobile cover tries the larger WebP when the small one is broken', async ({ page }) => {
+  await mockGallery(page, { defaultView: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.route('**/api/public/g/effects-fixture', route => route.fulfill({ json: {
+    slug: 'effects-fixture', title: '山海之间', visibility: 'PUBLIC', accessState: 'READY', photoCount: 12,
+    cover: { url: '/fixtures/photo-4.svg', width: 1200, height: 800,
+      previewUrl: '/fixtures/broken-preview.webp', previewWidth: 480,
+      displayUrl: '/fixtures/photo-4-display.svg', displayWidth: 960 }
+  } }))
+  await page.route('**/fixtures/broken-preview.webp', route => route.fulfill({ contentType: 'image/webp', body: 'Invalid image' }))
+  await page.goto('/g/effects-fixture')
+  const cover = page.locator('.album-cover img')
+  await expect.poll(() => cover.evaluateAll(nodes => {
+    const img = nodes[0] as HTMLImageElement | undefined
+    return img?.complete && img.naturalWidth > 0 ? new URL(img.currentSrc).pathname : null
+  }), { timeout: 5000 }).toBe('/fixtures/photo-4-display.svg')
+})
+
 test('mixed photos keep their order and album navigation preserves the share fragment', async ({ page }) => {
   await mockGallery(page, { defaultView: true })
   await page.route('**/api/public/g/effects-fixture/photos?**', route => route.fulfill({

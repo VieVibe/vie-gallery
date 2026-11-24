@@ -6,6 +6,7 @@ import { photoLabel } from '../lib/photoTitle'
 interface PhotoItem {
   title?: string | null
   thumbnailUrl?: string | null
+  previewUrl?: string | null
   width?: number | null
   height?: number | null
   sortOrder?: number | null
@@ -48,7 +49,7 @@ const sourceIndex = ref(0)
 const imageKey = ref(0)
 
 function imageSources(item?: PhotoItem): string[] {
-  return [...new Set([item?.textureUrl, item?.mediumUrl, item?.thumbnailUrl]
+  return [...new Set([item?.textureUrl, item?.mediumUrl, item?.thumbnailUrl, item?.previewUrl]
     .filter((url): url is string => typeof url === 'string' && url.trim().length > 0))]
 }
 
@@ -253,8 +254,10 @@ function endGesture(event: PointerEvent) {
     select(props.currentIndex + (dx < 0 ? 1 : -1))
   }
 }
-function hideBrokenThumbnail(event: Event) {
-  (event.currentTarget as HTMLImageElement).hidden = true
+function fallbackPreview(event: Event, thumbnailUrl?: string | null) {
+  const image = event.currentTarget as HTMLImageElement
+  if (thumbnailUrl && image.getAttribute('src') !== thumbnailUrl) image.src = thumbnailUrl
+  else image.hidden = true
 }
 </script>
 
@@ -307,7 +310,16 @@ function hideBrokenThumbnail(event: Event) {
           <Icon name="arrow-left" :size="24" />
         </button>
         <div class="image-wrapper" :aria-busy="status === 'loading'">
-          <img v-if="photo.thumbnailUrl && status === 'loading'" :src="photo.thumbnailUrl" alt="" class="image-preview" aria-hidden="true" draggable="false" />
+          <img
+            v-if="(photo.previewUrl || photo.thumbnailUrl) && status === 'loading'"
+            :key="'preview-' + imageKey"
+            :src="photo.previewUrl || photo.thumbnailUrl || undefined"
+            alt=""
+            class="image-preview"
+            aria-hidden="true"
+            draggable="false"
+            @error="fallbackPreview($event, photo.thumbnailUrl)"
+          />
           <img
             v-if="imageUrl && status !== 'error'"
             :key="imageKey"
@@ -353,7 +365,15 @@ function hideBrokenThumbnail(event: Event) {
             @click="select(entry.index)"
           >
             <span aria-hidden="true">{{ entry.index + 1 }}</span>
-            <img v-if="entry.item.thumbnailUrl" :src="entry.item.thumbnailUrl" alt="" loading="lazy" decoding="async" draggable="false" @error="hideBrokenThumbnail" />
+            <img
+              v-if="entry.item.previewUrl || entry.item.thumbnailUrl"
+              :src="entry.item.previewUrl || entry.item.thumbnailUrl || undefined"
+              alt=""
+              loading="lazy"
+              decoding="async"
+              draggable="false"
+              @error="fallbackPreview($event, entry.item.thumbnailUrl)"
+            />
           </button>
         </nav>
         <p :id="helpId" class="sr-only">左右方向键切换照片，Home 跳到首张，End 跳到末张，Esc 关闭。触屏可左右滑动切换。</p>

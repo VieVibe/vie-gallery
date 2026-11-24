@@ -196,6 +196,7 @@ export function useViewerState(slug: string, options: { isPreviewEmbed?: () => b
       gallery.value = nextGallery
       markStartupStage('access-ready')
       if (nextGallery.accessState === 'READY') {
+        state.value = 'loading'
         await loadFirstPage(version)
       } else if (nextGallery.accessState === 'EMPTY') {
         await loadEmptyGallery(version)

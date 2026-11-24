@@ -208,7 +208,7 @@ export class ViewerEngine {
 
     if (this.disposed) return
     if (this.configManager.getConfig().layout.params?.composition === 'curated') this.resetView()
-    this.photoScene.updateVisibility(this.camera)
+    this.photoScene.updateVisibility(this.camera, this.renderer.domElement.height)
     if (import.meta.env.DEV || import.meta.env.VITE_VIEWER_DIAGNOSTICS === 'true') {
       this.diagnostics = {
         snapshot: () => this.getDiagnostics(),
@@ -939,7 +939,7 @@ export class ViewerEngine {
     // 更新所有插件 (粒子动画、天空盒跟随、布局缓动)
     this.atmosphere.update(delta, this.motionQuery.matches)
     this.pluginManager.update(delta, elapsed)
-    this.photoScene.updateVisibility(this.camera)
+    this.photoScene.updateVisibility(this.camera, this.renderer.domElement.height)
 
     try {
       if (this.postProcessing) this.postProcessing.render(delta,

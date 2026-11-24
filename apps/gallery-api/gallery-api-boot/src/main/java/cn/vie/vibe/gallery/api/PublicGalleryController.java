@@ -77,7 +77,11 @@ public class PublicGalleryController {
         CoverResponse cover = view.cover() == null ? null : new CoverResponse(
                 view.cover().url(),
                 view.cover().width(),
-                view.cover().height()
+                view.cover().height(),
+                view.cover().previewUrl(),
+                view.cover().previewWidth(),
+                view.cover().displayUrl(),
+                view.cover().displayWidth()
         );
 
         return new PublicGalleryResponse(
@@ -193,7 +197,8 @@ public class PublicGalleryController {
                         p.height(),
                         p.sortOrder(),
                         p.mediumUrl(),
-                        p.textureUrl()
+                        p.textureUrl(),
+                        p.previewUrl()
                 ))
                 .toList();
 
@@ -248,7 +253,11 @@ public class PublicGalleryController {
     public record CoverResponse(
             String url,
             int width,
-            int height
+            int height,
+            String previewUrl,
+            Integer previewWidth,
+            String displayUrl,
+            Integer displayWidth
     ) {}
 
     public record UnlockRequest(@NotBlank String password) {}
@@ -262,7 +271,8 @@ public class PublicGalleryController {
             int height,
             int sortOrder,
             String mediumUrl,
-            String textureUrl
+            String textureUrl,
+            String previewUrl
     ) {}
 
     public record PhotoListResponse(

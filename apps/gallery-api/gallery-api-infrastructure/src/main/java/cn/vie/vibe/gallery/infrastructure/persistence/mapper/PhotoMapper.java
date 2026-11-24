@@ -32,6 +32,9 @@ public interface PhotoMapper {
     List<Map<String, Object>> publicReadyByGallery(@Param("tenantId") String tenantId, @Param("galleryId") String galleryId,
                                                     @Param("offset") int offset, @Param("limit") int limit);
 
+    @Select("SELECT " + C + " FROM photo WHERE tenant_id=UUID_TO_BIN(#{tenantId}) AND gallery_id=UUID_TO_BIN(#{galleryId}) AND deleted_at IS NULL AND status='READY' AND is_cover=TRUE ORDER BY sort_order,created_at,id LIMIT 1")
+    Map<String, Object> publicReadyMarkedCover(@Param("tenantId") String tenantId, @Param("galleryId") String galleryId);
+
     @Select("SELECT COUNT(*) FROM photo WHERE tenant_id=UUID_TO_BIN(#{tenantId}) AND gallery_id=UUID_TO_BIN(#{galleryId}) AND deleted_at IS NULL AND status='READY'")
     int countPublicReadyByGallery(@Param("tenantId") String tenantId, @Param("galleryId") String galleryId);
 

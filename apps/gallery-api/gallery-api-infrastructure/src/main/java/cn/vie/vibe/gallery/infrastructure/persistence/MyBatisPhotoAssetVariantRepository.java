@@ -51,6 +51,15 @@ public class MyBatisPhotoAssetVariantRepository implements PhotoAssetVariantRepo
         return mapper.softDelete(tenantId.toString(), photoId.toString(), kind.name(), MyBatisValueMapper.localDateTime(Instant.now()));
     }
 
+    @Override
+    public List<PreviewCandidate> findMissingPreviews(UUID afterPhotoId, int limit) {
+        return mapper.findMissingPreviews(afterPhotoId == null ? null : afterPhotoId.toString(), limit).stream()
+                .map(row -> new PreviewCandidate(MyBatisValueMapper.uuid(row, "tenantId"),
+                        MyBatisValueMapper.uuid(row, "photoId"), MyBatisValueMapper.uuid(row, "storageObjectId"),
+                        (String) row.get("sourceKey"), (String) row.get("sourceType")))
+                .toList();
+    }
+
     private PhotoAssetVariant toDomain(Map<String, Object> row) {
         return new PhotoAssetVariant(MyBatisValueMapper.uuid(row, "id"), MyBatisValueMapper.uuid(row, "tenantId"),
                 MyBatisValueMapper.uuid(row, "photoId"), MyBatisValueMapper.uuid(row, "storageObjectId"),

@@ -12,6 +12,7 @@ export class PhotoScene {
   private frustum = new THREE.Frustum()
   private matrix = new THREE.Matrix4()
   private position = new THREE.Vector3()
+  private viewPosition = new THREE.Vector3()
   private disposed = false
   private flatCards = false
   constructor(private scene: THREE.Scene, private pool: TexturePool, private textureReady: (mesh: PhotoMesh) => void = () => {}) {}
@@ -74,8 +75,9 @@ export class PhotoScene {
     return { all, added, removed }
   }
   private load(photo: PublicPhoto, mesh: PhotoMesh): void {
-    const urls = [...new Set([photo.thumbnailUrl, photo.textureUrl].filter((url): url is string => !!url))]
+    const urls = [...new Set([photo.previewUrl, photo.thumbnailUrl, photo.textureUrl].filter((url): url is string => !!url))]
     if (!urls.length) return
+    const highUrl = photo.textureUrl ?? photo.thumbnailUrl
     this.pool.onChange(photo, texture => {
       if (this.disposed || this.meshes.get(photo) !== mesh) return
       if (!texture) {
@@ -86,7 +88,7 @@ export class PhotoScene {
         return
       }
       this.applyTexture(mesh, texture)
-      if (photo.textureUrl && (texture.userData.sourceUrl === photo.textureUrl || photo.textureUrl === photo.thumbnailUrl)) {
+      if (highUrl && (texture.userData.sourceUrl === highUrl || (urls.length === 1 && urls[0] === highUrl))) {
         this.highTextureReady.add(photo)
       }
       mesh.userData.textureState = 'ready'
@@ -98,8 +100,10 @@ export class PhotoScene {
     })
   }
   private loadHighTexture(photo: PublicPhoto, mesh: PhotoMesh, priority: number): void {
-    const url = photo.textureUrl
-    if (!url || url === photo.thumbnailUrl || this.highTextureFailed.has(photo) || this.highTextureReady.has(photo)) return
+    const source = (mesh.material as THREE.MeshStandardMaterial).map?.userData.sourceUrl
+    const urls = [...new Set([photo.textureUrl, photo.previewUrl ? photo.thumbnailUrl : null]
+      .filter((url): url is string => !!url && url !== source))]
+    if (!urls.length) return
     let owner = this.highTextureOwners.get(photo)
     if (!owner) { owner = {}; this.highTextureOwners.set(photo, owner) }
     this.pool.onChange(owner, texture => {
@@ -118,7 +122,7 @@ export class PhotoScene {
       this.pool.release(photo)
       this.textureReady(mesh)
     })
-    void this.pool.acquire(owner, [url], Number.isFinite(priority) ? priority + 1 : priority).catch(error => {
+    void this.pool.acquire(owner, urls, Number.isFinite(priority) ? priority + 1 : priority).catch(error => {
       if (error?.name !== 'AbortError' && this.meshes.get(photo) === mesh) this.highTextureFailed.add(photo)
     })
   }
@@ -134,7 +138,14 @@ export class PhotoScene {
     material.map = null; material.emissiveMap = null; material.emissive.set('#000000')
     material.color.set('#b8bcc4'); material.needsUpdate = true
   }
-  updateVisibility(camera: THREE.PerspectiveCamera): void {
+  private exceedsPreviewSize(surface: THREE.Mesh, camera: THREE.PerspectiveCamera, viewportHeight: number): boolean {
+    const depth = -this.viewPosition.setFromMatrixPosition(surface.matrixWorld).applyMatrix4(camera.matrixWorldInverse).z
+    const radius = (surface.geometry.boundingSphere?.radius ?? 0) * surface.matrixWorld.getMaxScaleOnAxis()
+    // Project the bounding sphere's diameter into the drawing buffer.
+    return depth > 0 && radius * viewportHeight * camera.projectionMatrix.elements[5] > 480 * depth
+  }
+
+  updateVisibility(camera: THREE.PerspectiveCamera, viewportHeight: number): void {
     if (this.disposed) return
     camera.updateMatrixWorld(); this.scene.updateMatrixWorld()
     this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
@@ -152,9 +163,12 @@ export class PhotoScene {
         ? Math.min(.99, this.position.project(camera).length() / 2)
         : distance / (1 + distance)
       const highOwner = this.highTextureOwners.get(photo)
-      this.pool.touch(photo, highOwner && this.highTextureReady.has(photo) ? Infinity : priority)
-      if (highOwner) this.pool.touch(highOwner, priority + 1)
-      else if (!this.flatCards && visible && mesh.userData.textureState === 'ready' && !this.highTextureReady.has(photo)) this.loadHighTexture(photo, mesh, priority)
+      const highReady = this.highTextureReady.has(photo)
+      const needsUpgrade = visible && !highReady && !this.highTextureFailed.has(photo) && mesh.userData.textureState === 'ready'
+        && (photo.previewUrl ? this.exceedsPreviewSize(nearestSurface, camera, viewportHeight) : !this.flatCards)
+      this.pool.touch(photo, highOwner && highReady ? Infinity : priority)
+      if (highOwner) this.pool.touch(highOwner, highReady || needsUpgrade ? priority + 1 : Infinity)
+      else if (needsUpgrade) this.loadHighTexture(photo, mesh, priority)
     }
   }
   retry(photo: PublicPhoto): void {

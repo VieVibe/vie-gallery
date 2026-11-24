@@ -28,11 +28,11 @@ const rows = computed(() => albumRows(props.photos))
       >
         <span class="photo-frame" :style="{ aspectRatio: ratio }">
           <AlbumImage
-            :sources="[photo.thumbnailUrl, photo.mediumUrl, photo.textureUrl]"
+            :sources="[photo.previewUrl, photo.thumbnailUrl, photo.mediumUrl, photo.textureUrl]"
             :alt="photoLabel(photo.title, index)"
             :eager="prioritizeFirstPhotos && index < 2"
             :priority="prioritizeFirstPhotos && index === 0"
-            @settled="index === 0 && emit('firstPhotoRendered')"
+            @loaded="index === 0 && emit('firstPhotoRendered')"
           />
         </span>
         <span v-if="exhibitionTitle(photo.title)" class="photo-caption">{{ exhibitionTitle(photo.title) }}</span>

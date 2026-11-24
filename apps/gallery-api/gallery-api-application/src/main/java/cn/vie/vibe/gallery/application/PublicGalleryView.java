@@ -20,6 +20,14 @@ public record PublicGalleryView(
     public record CoverView(
             String url,
             int width,
-            int height
-    ) {}
+            int height,
+            String previewUrl,
+            Integer previewWidth,
+            String displayUrl,
+            Integer displayWidth
+    ) {
+        public CoverView(String url, int width, int height) {
+            this(url, width, height, null, null, null, null);
+        }
+    }
 }
