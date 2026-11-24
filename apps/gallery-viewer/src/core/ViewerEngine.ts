@@ -224,13 +224,6 @@ export class ViewerEngine {
     performance.mark('viewer:base-scene-ready')
   }
 
-  /**
-   * 根据配置自动安装插件
-   */
-  private async installPluginsFromConfig(): Promise<void> {
-    await this.reconcilePlugins(this.configManager.getConfig())
-  }
-
   getRequestedConfig(): ViewerConfig { return this.configManager.getConfig() }
 
   applyConfig(patch: Partial<ViewerConfig>): Promise<void> {

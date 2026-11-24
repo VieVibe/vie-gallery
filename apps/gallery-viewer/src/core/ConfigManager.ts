@@ -1,5 +1,5 @@
 import { createDefaultViewerConfig, createRecommendedViewerConfig, normalizeViewerConfig, parseViewerConfig, mergeViewerConfig, serializeViewerConfig,
-  ViewerConfigValidationError, VIEWER_PRESETS, applyViewerPreset, isViewerPreset, type ViewerConfig, type ConfigIssue } from '@vie/gallery-contracts'
+  ViewerConfigValidationError, applyViewerPreset, isViewerPreset, type ViewerConfig, type ConfigIssue } from '@vie/gallery-contracts'
 import { PublicApiClient } from '../api/client'
 
 export interface DeviceProfile { isMobile: boolean; memory: number; cores: number; isLowEnd: boolean; pixelRatio: number }
@@ -11,7 +11,6 @@ export function getDeviceProfile(): DeviceProfile {
   const isLowEnd = isMobile || memory < 4 || cores < 4
   return { isMobile, memory, cores, isLowEnd, pixelRatio: isLowEnd ? 1 : Math.min(typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1, 2) }
 }
-export const BUILTIN_PRESETS = VIEWER_PRESETS
 
 export class ConfigManager {
   private config: ViewerConfig

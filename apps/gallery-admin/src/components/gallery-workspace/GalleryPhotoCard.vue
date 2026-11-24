@@ -4,7 +4,7 @@ import type { WorkspacePhoto } from '../../composables/useGalleryWorkspace'
 import { formatBytes } from '../../lib/format'
 import Icon from '../Icon.vue'
 
-const props = defineProps<{
+defineProps<{
   photo: WorkspacePhoto
   canWrite?: boolean
   selected?: boolean
@@ -365,7 +365,7 @@ function handleSelectClick(event: Event) {
 
 @media (max-width: 768px), (hover: none) {
   .select-btn { opacity: 1; }
-  .photo-card, .photo-card:hover, .photo-card.tilt-active,
+  .photo-card, .photo-card:hover,
   .photo-card .photo-img-box, .photo-card .photo-info,
   .photo-card .select-btn, .photo-card .ghost-btn {
     transform: none;
@@ -376,7 +376,7 @@ function handleSelectClick(event: Event) {
 
 @media (prefers-reduced-motion: reduce) {
   .photo-card, .select-btn { transition: none; }
-  .photo-card:hover, .photo-card.tilt-active { transform: none; }
+  .photo-card:hover { transform: none; }
   .dot-pulse { animation: none; }
 }
 </style>

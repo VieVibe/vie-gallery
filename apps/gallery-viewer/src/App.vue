@@ -247,7 +247,6 @@ const hoveredScreenPos = ref<{ x: number; y: number }>({ x: 0, y: 0 })
 const showApm = ref(false)
 const diagnosticsEnabled = import.meta.env.DEV || import.meta.env.VITE_VIEWER_DIAGNOSTICS === 'true'
 const apmMetrics = ref<EngineMetrics | null>(null)
-const gyroEnabled = ref(false)
 
 // Raycaster
 let raycaster: Three.Raycaster | null = null
@@ -278,23 +277,9 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleImmersiveKey)
   stopPreviewProgress()
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
-  window.removeEventListener('deviceorientation', handleOrientation, true)
   window.removeEventListener('message', handlePostMessage)
   destroy3DEngine()
   clearViewerSeo()
-})
-
-// 动态按需挂载陀螺仪监听（避免权限策略拦截与无意义开销）
-watch(gyroEnabled, (enabled) => {
-  if (enabled) {
-    try {
-      window.addEventListener('deviceorientation', handleOrientation, true)
-    } catch (e) {
-      console.warn('Device orientation not supported or permitted', e)
-    }
-  } else {
-    window.removeEventListener('deviceorientation', handleOrientation, true)
-  }
 })
 
 function isEmbedPreview() {
@@ -678,36 +663,6 @@ function closeLightbox() {
 
 function toggleAutoTour() {
   applyAutoTour(!isAutoTour.value)
-}
-
-/**
- * 移动端陀螺仪重力感应视差
- */
-function handleOrientation(e: DeviceOrientationEvent) {
-  if (theatre.value.active) return
-  if (!gyroEnabled.value || !engine) return
-  const beta = e.beta || 0   // -180 ~ 180 (X-axis tilt)
-  const gamma = e.gamma || 0 // -90 ~ 90 (Y-axis tilt)
-
-  const camera = engine.getCamera()
-  const offsetX = (gamma / 90) * 80
-  const offsetY = ((beta - 45) / 90) * 80
-  camera.position.x += (offsetX - camera.position.x * 0.05) * 0.05
-  camera.position.y += (offsetY - camera.position.y * 0.05) * 0.05
-}
-
-function toggleGyro() {
-  if (typeof (DeviceOrientationEvent as any)?.requestPermission === 'function') {
-    (DeviceOrientationEvent as any).requestPermission()
-      .then((state: string) => {
-        if (state === 'granted') {
-          gyroEnabled.value = !gyroEnabled.value
-        }
-      })
-      .catch(console.error)
-  } else {
-    gyroEnabled.value = !gyroEnabled.value
-  }
 }
 
 // 演示内容只在本地开发构建可访问，生产环境不会显示 demo 相册。
