@@ -142,14 +142,21 @@ public class ShareLinkFacade {
         Instant now = Instant.now();
 
         return links.stream()
-                .map(link -> new ShareLinkView(
-                        link.getId(),
-                        link.getGalleryId(),
-                        link.getStatus(now),
-                        link.getExpiresAt(),
-                        link.getLastAccessedAt(),
-                        link.getCreatedAt()
-                ))
+                .map(link -> {
+                    ShareLinkStatus status = link.getStatus(now);
+                    String rawToken = link.getRawToken();
+                    String shortUrl = status == ShareLinkStatus.ACTIVE && link.getShortCode() != null
+                            && rawToken != null && !rawToken.isBlank() ? shortUrl(link.getShortCode()) : null;
+                    return new ShareLinkView(
+                            link.getId(),
+                            link.getGalleryId(),
+                            status,
+                            link.getExpiresAt(),
+                            link.getLastAccessedAt(),
+                            link.getCreatedAt(),
+                            shortUrl
+                    );
+                })
                 .toList();
     }
 
@@ -384,16 +391,18 @@ public class ShareLinkFacade {
 
         // 如果已有短码，直接返回
         if (shareLink.getShortCode() != null) {
-            String shortUrl = String.format("%s/s/%s", publicBaseUrl, shareLink.getShortCode());
-            return new CreateShortUrlResult(shareLink.getId(), shareLink.getShortCode(), shortUrl);
+            return new CreateShortUrlResult(shareLink.getId(), shareLink.getShortCode(), shortUrl(shareLink.getShortCode()));
         }
 
         // 生成短码（重试机制处理冲突）
         String shortCode = generateUniqueShortCode();
         shareLinkRepository.assignShortCode(linkId, shortCode, now);
 
-        String shortUrl = String.format("%s/s/%s", publicBaseUrl, shortCode);
-        return new CreateShortUrlResult(shareLink.getId(), shortCode, shortUrl);
+        return new CreateShortUrlResult(shareLink.getId(), shortCode, shortUrl(shortCode));
+    }
+
+    private String shortUrl(String shortCode) {
+        return String.format("%s/s/%s", publicBaseUrl, shortCode);
     }
 
     /**

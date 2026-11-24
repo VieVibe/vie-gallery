@@ -17,7 +17,12 @@ interface Props {
   show: boolean
   photos: PhotoItem[]
   currentIndex: number
+  total?: number
+  loadingMore?: boolean
+  paginationError?: string | null
   allowDownload?: boolean
+  lightScene?: boolean
+  embedded?: boolean
   thumbnailRect?: { x: number; y: number; width: number; height: number } | null
 }
 
@@ -25,6 +30,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'select', index: number): void
+  (e: 'load-next', index: number): void
 }>()
 
 const dialog = ref<HTMLDialogElement | null>(null)
@@ -32,6 +38,9 @@ const closeButton = ref<HTMLButtonElement | null>(null)
 const mainImage = ref<HTMLImageElement | null>(null)
 const photo = computed(() => props.photos[props.currentIndex])
 const isOpen = computed(() => props.show && !!photo.value)
+const totalPhotos = computed(() => Math.max(props.photos.length, props.total ?? 0))
+const canAdvance = computed(() => props.currentIndex + 1 < totalPhotos.value)
+const nextPageNeeded = computed(() => canAdvance.value && props.currentIndex + 1 === props.photos.length)
 const titleId = useId()
 const helpId = useId()
 const status = ref<'loading' | 'ready' | 'error'>('loading')
@@ -118,6 +127,7 @@ function retry() {
 }
 function select(index: number) {
   if (index >= 0 && index < props.photos.length && index !== props.currentIndex) emit('select', index)
+  else if (index === props.currentIndex + 1 && nextPageNeeded.value && !props.loadingMore) emit('load-next', index)
 }
 
 function focusableElements() {
@@ -254,6 +264,7 @@ function hideBrokenThumbnail(event: Event) {
       v-if="isOpen && photo"
       ref="dialog"
       class="lightbox-overlay"
+      :class="{ 'light-scene': lightScene, 'is-embedded': embedded }"
       aria-modal="true"
       :aria-labelledby="titleId"
       :aria-describedby="helpId"
@@ -265,7 +276,7 @@ function hideBrokenThumbnail(event: Event) {
       <header class="lightbox-topbar">
         <div class="photo-indicator" aria-live="polite" aria-atomic="true">
           <span class="sr-only">第 </span><span class="index-current">{{ currentIndex + 1 }}</span>
-          <span class="index-divider"> / </span>{{ photos.length }}<span class="sr-only"> 张</span>
+          <span class="index-divider"> / </span>{{ totalPhotos }}<span class="sr-only"> 张</span>
         </div>
         <div class="topbar-actions">
           <a
@@ -318,10 +329,12 @@ function hideBrokenThumbnail(event: Event) {
           </div>
         </div>
         <div class="loading-status" role="status" aria-live="polite">
-          <span v-if="status === 'loading'" class="loading-label">正在加载照片…</span>
+          <span v-if="nextPageNeeded && loadingMore" class="loading-label">正在加载下一张…</span>
+          <span v-else-if="nextPageNeeded && paginationError" class="loading-label">加载失败，点击下一张重试</span>
+          <span v-else-if="status === 'loading'" class="loading-label">正在加载照片…</span>
           <span v-else-if="status === 'ready'" class="sr-only">照片已加载</span>
         </div>
-        <button type="button" class="nav-btn next-btn" :disabled="currentIndex === photos.length - 1" aria-label="下一张" @click="select(currentIndex + 1)">
+        <button type="button" class="nav-btn next-btn" :disabled="!canAdvance" aria-label="下一张" @click="select(currentIndex + 1)">
           <Icon name="arrow-right" :size="24" />
         </button>
       </div>
@@ -432,6 +445,16 @@ button:focus-visible, a:focus-visible { outline: 2px solid #a0c5b2; outline-offs
 .thumbnail-btn[aria-current='true'] { border-color: #bfd5c7; opacity: 1; }.thumbnail-btn:hover { opacity: 1; }
 .thumbnail-btn img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .thumbnail-btn img[hidden] { display: none; }
+.light-scene { background: radial-gradient(ellipse at 50% 43%, #fdfef9, #e6efe4 76%); color: #243d2f; }
+.light-scene::backdrop { background: #e1eddf; }
+.light-scene :is(.index-current, .photo-title, .close-btn, .nav-btn, .retry-btn, .download-action-btn) { color: #243d2f; }
+.light-scene :is(.photo-indicator, .photo-meta, .message-detail) { color: #506758; }
+.light-scene :is(.close-btn, .nav-btn, .retry-btn, .download-action-btn, .loading-label) { border-color: #bfcec0; background: #f5f8f1; }
+.light-scene :is(.close-btn, .nav-btn:not(:disabled), .retry-btn, .download-action-btn):hover { background: #dcebdd; }
+.light-scene .loading-label { color: #385142; }
+.light-scene .thumbnail-btn { background: #dbe8dc; color: #385142; }
+.light-scene .thumbnail-btn[aria-current='true'] { border-color: #57856a; }
+.light-scene :is(button, a):focus-visible { outline-color: #488064; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @media (max-width: 480px) {
   .lightbox-stage { grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr) 44px; gap: 8px; }
@@ -454,5 +477,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid #a0c5b2; outline-offs
 @media (prefers-reduced-motion: reduce) {
   .main-image, .close-btn, .nav-btn, .retry-btn, .download-action-btn, .thumbnail-btn { transition: none; animation: none; }
   .main-image.is-ready { animation: none; }
+}
+/* The creator's preview toolbar overlaps the top of the iframe. */
+.is-embedded .lightbox-topbar { padding-top: 66px; }
+@media (max-width: 520px) {
+  .is-embedded .lightbox-topbar { padding-top: 94px; }
 }
 </style>

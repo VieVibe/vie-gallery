@@ -1,12 +1,12 @@
 # 阳光明媚
 
-阳光明媚是一个面向个人用户和创作者的照片相册产品：保存原始照片，整理相册记录，创作 2D/3D 展示体验，通过受控链接分享给访客，并在工作台中持续管理和更新。仓库与内部包名保留 `vie-gallery`。
+阳光明媚面向个人和摄影创作者。上传、整理照片后即可发布相册，通过链接分享给访客。相册以封面和连续阅读为主，并提供空间漫游。仓库与内部包名为 `vie-gallery`。
 
 ## 当前阶段
 
 **个人相册 V1 Ready 已于 2026-09-12 签字验收通过**，验收报告见 [`docs/v1-ready-signoff.md`](docs/v1-ready-signoff.md)。
 
-**当前执行路线**：V1 后一个月核心任务路线图 [`docs/v1-post-one-month-roadmap.md`](docs/v1-post-one-month-roadmap.md)（2026-09-17 至 2026-10-17），聚焦功能完善、效果提升、代码质量和信息安全。
+**当前产品方案**见[相册改造设计](docs/superpowers/specs/2026-11-23-album-experience-design.md)，涵盖创建、发布、分享和访客阅读。
 
 历史规划文档：
 - [`docs/personal-album-v1-plan.md`](docs/personal-album-v1-plan.md)：个人相册 V1 总规划（已完成）
@@ -31,19 +31,16 @@ M7 历史证据见 [`docs/m7-testing-results.md`](docs/m7-testing-results.md)。
 ## 当前用户路径
 
 ```text
-注册/登录 → /app/ → 创建或选择相册 → /app/galleries/:id
-                                      ├─ 上传、处理、整理照片
-                                      ├─ 配置 2D/3D 展示并保存草稿
-                                      ├─ 内部预览草稿（不改变公开 URL）
-                                      ├─ 发布和回滚配置
-                                      └─ 生成分享链接 → /g/:slug?t=<token>
+注册或登录 → 我的相册 → 填写名称创建相册 → 添加照片 → 预览 → 发布并分享
+                                                       └─ 空间展示 → 调整编排或管理配置版本
 ```
 
 访客路径：
 
 ```text
-/g/:slug                  已发布的 PUBLIC 相册
-/g/:slug?t=<token>        已发布的 PRIVATE 或受保护相册
+/g/:slug                  公开相册，或凭密码进入的相册
+/s/:code                  专属短链接
+/g/:slug?t=<token>        凭现有专属分享链接进入
 ```
 
 创作者内部预览：
@@ -169,6 +166,7 @@ bash test-mcp-flow.sh
 当前 M6/M6.5 和 M7.1/M7.2 的真实环境证据已记录；M7.3/M7.4/M7.5、完整集成测试、密码重置和备份恢复仍是个人相册 V1 上线前工作，详见 [`docs/personal-album-v1-plan.md`](docs/personal-album-v1-plan.md)。
 
 ## 文档入口
+
 
 ### 当前开发
 - **[V1 后一个月任务路线图](docs/v1-post-one-month-roadmap.md)**：当前执行规划（2026-09-17 至 2026-10-17）

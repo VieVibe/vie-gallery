@@ -4,6 +4,7 @@ import { resolvePhotoArrangement } from '@vie/gallery-contracts'
 import { stageArrangement } from '../lib/stageArrangements'
 import { stageFraming } from '../lib/stageFraming'
 import { PaperBook } from '../core/PaperBook'
+import { FilmRibbon } from '../core/FilmRibbon'
 
 /** A single progress value drives the photographs, framing, and visitor navigation. */
 export class SpatialStagePlugin implements ViewerPlugin {
@@ -35,6 +36,7 @@ export class SpatialStagePlugin implements ViewerPlugin {
   private entranceSignature = ''
   private paths = new THREE.Group()
   private book: PaperBook | null = null
+  private film: FilmRibbon | null = null
 
   install(context: ViewerContext) {
     this.installed = true
@@ -88,6 +90,7 @@ export class SpatialStagePlugin implements ViewerPlugin {
   private setTheatreActive = (active: boolean) => {
     this.theatreActive = active; this.cancel(); this.dwell = 0
     if (active) {
+      this.film?.hide()
       this.book?.hide(); this.paths.visible = false
       if (this.moving) { this.moving = false; this.context.emit('transition:end') }
     } else this.known = new WeakSet()
@@ -186,6 +189,19 @@ export class SpatialStagePlugin implements ViewerPlugin {
     const canvasWidth = this.canvas.clientWidth || canvasHeight * camera.aspect
     const preview = this.canvas.dataset?.presentation === 'preview'
     const frame = stageFraming(canvasWidth, canvasHeight, camera.fov, (mobile ? 1040 : 930) - 180, this.immersive, preview, this.canvas.dataset?.hasMore ? 56 : 0)
+    this.canvas.style?.setProperty('--stage-top', `${frame.top}px`)
+    this.canvas.style?.setProperty('--stage-bottom', `${frame.bottom}px`)
+    if (arrangement === 'filmstrip') {
+      this.book?.hide(); this.paths.visible = false
+      this.film ??= new FilmRibbon(context.scene)
+      this.cameraPosition.set(0, 0, mobile ? 1040 : 930)
+      camera.position.lerp(this.cameraPosition, blend)
+      camera.lookAt(0, 0, 180)
+      this.film.render(context.photos, this.cursor, frame, mobile, params?.spacing ?? 1, params?.scale ?? 1)
+      this.reportIndex(count)
+      return
+    }
+    this.film?.hide()
     if (arrangement === 'book') {
       if (!this.book) this.book = new PaperBook(context.scene)
       const distance = mobile ? 1040 : 1120
@@ -217,7 +233,7 @@ export class SpatialStagePlugin implements ViewerPlugin {
       const presence = arrangement === 'tunnel'
         ? Math.min(1, Math.max(0, d + .6) * 4, Math.max(0, 4.5 - d)) * edge
         : Math.min(1, Math.max(0, 5 - a)) * edge
-      let { x, y, z, ry, rz } = stageArrangement(d, arrangement, mobile, params)
+      let { x, y, z, ry, rz, scale: arrangementScale } = stageArrangement(d, arrangement, mobile, params, frame)
       if (count === 1) { x = 0; y = 0; z = 180; ry = 0; rz = 0 }
       y += frame.centerY
       if (!reduced && !this.suspended && context.config.effects.photoFloat) {
@@ -238,7 +254,7 @@ export class SpatialStagePlugin implements ViewerPlugin {
       const width = geometry.parameters.width || 80, height = geometry.parameters.height || 60
       const fit = Math.min(frame.width / width, frame.height / height)
       const hover = !reduced && !this.drag && !this.suspended && this.hovered === i ? 1.028 : 1
-      const scale = fit * (params?.scale ?? 1) * (arrangement === 'tunnel' ? 1.12 : 1 - Math.min(a, 4) * .12) * hover
+      const scale = fit * (params?.scale ?? 1) * arrangementScale * hover
       mesh.scale.setScalar(fresh ? scale : THREE.MathUtils.lerp(mesh.scale.x, scale, blend))
       mesh.userData.layoutScale = mesh.scale.x
       mesh.visible = presence > .005
@@ -285,6 +301,7 @@ export class SpatialStagePlugin implements ViewerPlugin {
     this.canvas.removeEventListener('keydown', this.key)
     this.cancel()
     this.book?.dispose(); this.book = null
+    this.film?.dispose(); this.film = null
     for (const mesh of context.photos) {
       mesh.visible = true
       const material = mesh.material as THREE.MeshStandardMaterial

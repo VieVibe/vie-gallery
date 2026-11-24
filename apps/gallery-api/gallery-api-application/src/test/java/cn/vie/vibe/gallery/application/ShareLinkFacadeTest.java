@@ -26,6 +26,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -163,13 +164,22 @@ class ShareLinkFacadeTest {
         ShareLink active = fixture.addLink(gallery, "active-token", null, null);
         ShareLink expired = fixture.addLink(gallery, "expired-token", Instant.now().minusSeconds(60), null);
         ShareLink revoked = fixture.addLink(gallery, "revoked-token", null, Instant.now().minusSeconds(60));
+        ShareLink legacy = fixture.addLink(gallery, "legacy-token", null, null);
+        String activeUrl = fixture.facade.createShortUrl(active.getId().toString()).shortUrl();
+        fixture.facade.createShortUrl(expired.getId().toString());
+        fixture.facade.createShortUrl(revoked.getId().toString());
 
         List<ShareLinkView> result = fixture.facade.listShareLinks(gallery.id().toString());
 
-        assertEquals(3, result.size());
+        assertEquals(4, result.size());
         assertEquals(ShareLinkStatus.ACTIVE, viewFor(result, active.getId()).status());
         assertEquals(ShareLinkStatus.EXPIRED, viewFor(result, expired.getId()).status());
         assertEquals(ShareLinkStatus.REVOKED, viewFor(result, revoked.getId()).status());
+        assertEquals(activeUrl, viewFor(result, active.getId()).shortUrl());
+        assertNull(viewFor(result, expired.getId()).shortUrl());
+        assertNull(viewFor(result, revoked.getId()).shortUrl());
+        assertNull(viewFor(result, legacy.getId()).shortUrl());
+        assertNull(fixture.links.findById(legacy.getId()).orElseThrow().getShortCode());
         assertFalse(result.toString().contains("active-token"));
         assertFalse(result.toString().contains("expired-token"));
         assertFalse(result.toString().contains("revoked-token"));

@@ -1,82 +1,77 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed } from 'vue'
 import type { PublicPhoto } from '../types/api'
+import { albumRows } from '../lib/albumRows'
 import { exhibitionTitle, photoLabel } from '../lib/photoTitle'
+import AlbumImage from './AlbumImage.vue'
 
-const props = withDefaults(defineProps<{ photos: PublicPhoto[]; fit: 'contain' | 'cover'; prioritizeFirstPhotos?: boolean }>(), {
-  prioritizeFirstPhotos: false
-})
+const props = defineProps<{ photos: PublicPhoto[]; prioritizeFirstPhotos?: boolean }>()
 const emit = defineEmits<{ select: [index: number]; firstPhotoRendered: [] }>()
-const failedImages = ref(new Set<string>())
-const loadedImages = ref(new Set<string>())
-let firstPhotoReported = false
-
-function reportFirstPhoto() {
-  if (firstPhotoReported) return
-  firstPhotoReported = true
-  requestAnimationFrame(() => emit('firstPhotoRendered'))
-}
-
-function markFailed(url: string) {
-  failedImages.value = new Set([...failedImages.value, url])
-  reportFirstPhoto()
-}
-function markLoaded(url: string) {
-  loadedImages.value = new Set([...loadedImages.value, url])
-  reportFirstPhoto()
-}
+const rows = computed(() => albumRows(props.photos))
 </script>
 
 <template>
-  <section class="photo-wall" aria-label="照片墙" :class="{ 'is-fit': fit === 'contain' }">
-    <button
-      v-for="(photo, index) in photos"
-      :key="`${photo.sortOrder}-${photo.thumbnailUrl}-${index}`"
-      type="button"
-      class="photo-card"
-      :class="{ 'is-lead': index === 0 && (!photo.width || !photo.height || photo.width >= photo.height), 'is-loaded': loadedImages.has(photo.thumbnailUrl || '') }"
-      :aria-label="`查看照片 ${index + 1}：${photoLabel(photo.title, index)}`"
-      @click="emit('select', index)"
+  <div class="photo-wall">
+    <div
+      v-for="row in rows"
+      :key="row.items[0].index"
+      class="photo-row"
+      :style="{ '--columns': row.items.map(item => `minmax(0, ${item.ratio}fr)`).join(' '), '--row-width': `${row.ratio * 490}px` }"
     >
-      <span class="photo-frame" :style="photo.width && photo.height ? { aspectRatio: `${photo.width} / ${photo.height}` } : undefined">
-        <img
-          v-if="photo.thumbnailUrl && !failedImages.has(photo.thumbnailUrl)"
-          :src="photo.thumbnailUrl"
-          :alt="photoLabel(photo.title, index)"
-          :width="photo.width || undefined"
-          :height="photo.height || undefined"
-          :loading="props.prioritizeFirstPhotos && index < 2 ? 'eager' : 'lazy'"
-          :fetchpriority="props.prioritizeFirstPhotos && index === 0 ? 'high' : 'auto'"
-          decoding="async"
-          @load="markLoaded(photo.thumbnailUrl)"
-          @error="markFailed(photo.thumbnailUrl)"
-        />
-        <span v-else class="photo-placeholder"><span>{{ photoLabel(photo.title, index) }}</span><span>预览暂不可用，点击查看大图</span></span>
-        <span class="photo-open" aria-hidden="true"><span>查看作品</span><svg viewBox="0 0 24 24"><path d="M5 19 19 5M5 5h14v14"/></svg></span>
-      </span>
-      <span v-if="exhibitionTitle(photo.title)" class="photo-caption">{{ exhibitionTitle(photo.title) }}</span>
-    </button>
-  </section>
+      <button
+        v-for="{ photo, index, ratio } in row.items"
+        :key="index"
+        type="button"
+        class="photo-card"
+        :aria-label="`查看照片 ${index + 1}：${photoLabel(photo.title, index)}`"
+        @click="emit('select', index)"
+      >
+        <span class="photo-frame" :style="{ aspectRatio: ratio }">
+          <AlbumImage
+            :sources="[photo.thumbnailUrl, photo.mediumUrl, photo.textureUrl]"
+            :alt="photoLabel(photo.title, index)"
+            :eager="prioritizeFirstPhotos && index < 2"
+            :priority="prioritizeFirstPhotos && index === 0"
+            @settled="index === 0 && emit('firstPhotoRendered')"
+          />
+        </span>
+        <span v-if="exhibitionTitle(photo.title)" class="photo-caption">{{ exhibitionTitle(photo.title) }}</span>
+      </button>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.photo-wall { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(38px, 5vw, 76px) clamp(20px, 3vw, 44px); align-items: start; }
-.photo-card.is-lead { grid-column: span 2; }
-.photo-card.is-lead + .photo-card { align-self: end; }
-.photo-card { min-width: 0; padding: 0; text-align: left; color: var(--text-main); cursor: pointer; background: transparent; border: 0; }
-.photo-frame { position: relative; display: flex; width: 100%; min-height: 150px; align-items: center; justify-content: center; overflow: hidden; background: #e8e7df; }
-.photo-frame img { display: block; width: 100%; height: 100%; object-fit: contain; opacity: 0; transform: scale(1.015); transition: opacity .6s ease, transform 1s cubic-bezier(.2,.75,.2,1); }
-.is-loaded .photo-frame img { opacity: 1; transform: scale(1); }
-.photo-card:hover .photo-frame img { transform: scale(1.018); }
-.is-fit .photo-card:hover .photo-frame img { transform: none; }
-.photo-card:focus-visible { outline: 2px solid var(--accent, #26735d); outline-offset: 5px; }
-.photo-caption { display: block; padding-top: 16px; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
-.photo-open { position: absolute; display: flex; align-items: center; gap: 18px; right: 16px; bottom: 16px; padding: 11px 14px; color: #fffefa; background: #171d1a; font-size: 14px; opacity: 0; transform: translateY(5px); transition: opacity .25s, transform .25s; }
-.photo-open svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.4; }
-.photo-card:hover .photo-open, .photo-card:focus-visible .photo-open { opacity: 1; transform: translateY(0); }
-.photo-placeholder { display: grid; gap: 12px; padding: 28px 16px; color: #626c65; font-size: 12px; text-align: center; }
-.photo-placeholder span:first-child { color: #202824; font: 20px/1.4 var(--font-serif); }
-@media (max-width: 767px) { .photo-wall { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px 18px; }.photo-frame { min-height: 100px; }.photo-caption { padding-top: 12px; font-size: 14px; }.photo-open { display: none; } }
-@media (max-width: 380px) { .photo-wall { grid-template-columns: minmax(0, 1fr); gap: 36px; }.photo-card.is-lead { grid-column: auto; } }
-@media (prefers-reduced-motion: reduce) { .photo-frame img, .photo-open { transition: none; }.photo-frame img, .photo-card:hover .photo-frame img { transform: none; } }
+.photo-wall { display: grid; gap: clamp(30px, 5.5vw, 82px); }
+.photo-row {
+  display: grid;
+  grid-template-columns: var(--columns);
+  align-items: start;
+  gap: clamp(16px, 2.4vw, 36px);
+  width: min(100%, var(--row-width));
+  margin-inline: auto;
+}
+.photo-card { min-width: 0; padding: 0; color: var(--text-main); text-align: left; }
+.photo-frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  outline: 1px solid transparent;
+  outline-offset: 4px;
+  overflow: hidden;
+  background: #e4e3d8;
+  transition: outline-color .25s ease;
+}
+.photo-frame :deep(img) { transition: filter .25s ease; }
+.photo-card:hover .photo-frame { outline-color: #9ca897; }
+.photo-card:hover .photo-frame :deep(img) { filter: brightness(1.03); }
+.photo-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+.photo-caption { display: block; padding-top: 12px; color: #394c3f; font-size: .9375rem; line-height: 1.5; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .photo-row { grid-template-columns: minmax(0, 1fr); gap: 28px; width: 100%; }
+  .photo-frame { max-height: 78svh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .photo-frame, .photo-frame :deep(img) { transition: none; }
+}
 </style>

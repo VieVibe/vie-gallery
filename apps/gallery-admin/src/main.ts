@@ -42,9 +42,9 @@ const router = createRouter({
 
 const auth = useAuth()
 watch([() => router.currentRoute.value.name, auth.currentUser], ([name, user]) => {
-  const pageTitle = name === 'overview' ? (user ? '我的空间' : '登录')
+  const pageTitle = name === 'overview' ? (user ? '我的相册' : '登录')
     : name === 'members' ? '成员管理'
-    : name === 'gallery-workspace' ? '作品工作区'
+    : name === 'gallery-workspace' ? '编辑相册'
     : name === 'gallery-config' ? '展示设计' : ''
   document.title = pageTitle ? `${pageTitle} · 阳光明媚` : '阳光明媚'
 }, { immediate: true })

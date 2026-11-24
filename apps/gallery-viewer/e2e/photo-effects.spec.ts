@@ -88,7 +88,7 @@ test('every curated preset stays navigable on a phone, including reduced motion'
     await page.getByRole('button', { name: '下一张作品', exact: true }).click()
     const state = await page.evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__!.snapshot())
     expect(state.effectiveConfig.camera?.autoRotate).toBe(false)
-    expect(state.plugins).toContain('PhotoSurface')
+    expect(state.plugins.includes('PhotoSurface')).toBe(preset.effects.photo.style !== 'none')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   expect(errors).toEqual([])

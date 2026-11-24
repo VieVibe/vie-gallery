@@ -1,13 +1,13 @@
 import type { Page } from '@playwright/test'
 import { normalizeViewerConfig } from '@vie/gallery-contracts'
 
-export async function mockGallery(page: Page, options: { config?: unknown; count?: number; shared?: boolean } = {}) {
+export async function mockGallery(page: Page, options: { config?: unknown; count?: number; shared?: boolean; defaultView?: boolean } = {}) {
   const count = options.count ?? 12, config = normalizeViewerConfig(options.config ?? {}).config
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
   const network = options.shared ? page.context() : page
-  await network.addInitScript(() => localStorage.setItem('vie:view-mode', '3d'))
+  if (!options.defaultView) await network.addInitScript(() => localStorage.setItem('vie:view-mode', '3d'))
   await network.route('**/fixtures/photo-*', route => {
     const index = Number(new URL(route.request().url()).pathname.match(/photo-(\d+)/)?.[1] ?? 0)
     const portrait = index % 3 === 0, width = portrait ? 600 : 900, height = portrait ? 900 : 600

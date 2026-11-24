@@ -122,7 +122,7 @@ test.describe('创作链路', () => {
     )
 
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: '我的空间' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '我的相册' })).toBeVisible()
     await page.locator('.space-card').first().click()
     await expect(page).toHaveURL(new RegExp(`/app/galleries/${GALLERY_ID}$`))
     await expect(page.locator('.photo-grid-container')).toBeVisible()
@@ -290,7 +290,7 @@ test.describe('创作链路', () => {
     await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('card-controls-mobile.png') })
   })
 
-  test('网格拖动排序忽略上传入口的位置', async ({ page }) => {
+  test('网格拖动保存照片顺序', async ({ page }) => {
     let order: string[] = []
     await page.route(new RegExp('/api/galleries/' + GALLERY_ID + '/photos/order$'), async route => {
       order = route.request().postDataJSON().orderedPhotoIds
@@ -516,8 +516,8 @@ test.describe('创作链路', () => {
         expect(await row.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
         await expect(row.getByRole('button', { name: '预览照片：日出' })).toBeVisible()
       }
-      await expect.poll(() => page.locator('.hall-body').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
-      expect(await page.locator('.hero-actions').evaluate(el => {
+      await expect.poll(() => page.locator('.workspace-body').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+      expect(await page.locator('.workspace-actions').evaluate(el => {
         const rect = el.getBoundingClientRect()
         return rect.left >= 0 && rect.right <= window.innerWidth
       })).toBe(true)

@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { createRecommendedViewerConfig, applyPhotoArrangement, PHOTO_ARRANGEMENTS } from '@vie/gallery-contracts'
+import { VIEWER_PRESETS, applyPhotoArrangement, PHOTO_ARRANGEMENTS } from '@vie/gallery-contracts'
 import { mockGallery } from './helpers/mockGallery'
 
 test('the spatial exhibition obeys live autoplay settings and preserves all works', async ({ page }, info) => {
-  const config = createRecommendedViewerConfig()
+  const config = structuredClone(VIEWER_PRESETS['jade-flow'])
   config.camera.autoRotate = false
   const { errors } = await mockGallery(page, { config, count: 12 })
   await page.goto('/g/effects-fixture')
@@ -28,7 +28,7 @@ test('the spatial exhibition obeys live autoplay settings and preserves all work
 })
 
 test('curated shortcuts reflect the actual arrangement on initial load and live updates', async ({ page }) => {
-  const config = applyPhotoArrangement(createRecommendedViewerConfig(), 'orbit')
+  const config = applyPhotoArrangement(VIEWER_PRESETS['jade-flow'], 'orbit')
   config.camera.autoRotate = false
   const { errors } = await mockGallery(page, { config })
   await page.goto('/g/effects-fixture')
@@ -40,7 +40,7 @@ test('curated shortcuts reflect the actual arrangement on initial load and live 
       layout: { mode: definition.mode, params: { composition: 'curated', arrangement: definition.id } },
     }), arrangement)
     await expect(page.locator('.stage-info p')).toHaveText(arrangement.caption)
-    await expect(page.locator('.composition-dock button[aria-pressed="true"]')).toHaveCount(id === 'wave' ? 1 : 0)
+    await expect(page.locator('.composition-dock button[aria-pressed="true"]')).toHaveCount(id === 'filmstrip' || id === 'wave' ? 1 : 0)
   }
   await expect(page.getByRole('button', { name: '波浪', exact: true })).toHaveAttribute('aria-pressed', 'true')
   expect(errors).toEqual([])

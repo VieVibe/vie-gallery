@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { createRecommendedViewerConfig, PHOTO_ARRANGEMENTS } from '@vie/gallery-contracts'
+import { PHOTO_ARRANGEMENTS, SPATIAL_PRESETS, VIEWER_PRESETS } from '@vie/gallery-contracts'
 import { PhotoSurfacePlugin } from '../src/plugins/PhotoSurfacePlugin'
 import { stageArrangement } from '../src/lib/stageArrangements'
 import { createViewerContext } from './helpers/viewerContext'
@@ -10,7 +10,7 @@ import type { PhotoMesh } from '../src/core/types'
 test('surface hooks survive texture replacement, handle page append, and restore on removal', () => {
   const photo = () => Object.assign(new THREE.Mesh(new THREE.PlaneGeometry(80, 60), new THREE.MeshStandardMaterial()), { userData: { index: 0, url: '', thumbnailUrl: '' } }) as PhotoMesh
   const mesh = photo(), added = photo()
-  const context = createViewerContext(createRecommendedViewerConfig(), [mesh])
+  const context = createViewerContext(structuredClone(VIEWER_PRESETS['jade-flow']), [mesh])
   context.renderer.domElement = new EventTarget() as HTMLCanvasElement
   const material = mesh.material as THREE.MeshStandardMaterial
   const original = material.onBeforeCompile, originalKey = material.customProgramCacheKey
@@ -30,8 +30,8 @@ test('surface hooks survive texture replacement, handle page append, and restore
   assert.equal(added.material.onBeforeCompile, original)
 })
 
-test('spatial paths have distinct poses and finite coordinates across phone and desktop sizes', () => {
-  const paths = PHOTO_ARRANGEMENTS.filter(item => item.id !== 'book') // The book uses flexible leaves instead of path poses.
+test('legacy paths have distinct poses and finite coordinates across phone and desktop sizes', () => {
+  const paths = PHOTO_ARRANGEMENTS.filter(item => item.id !== 'book' && !SPATIAL_PRESETS.some(preset => preset.id === item.id))
   for (const mobile of [false, true]) {
     const signatures = new Set(paths.map(item => JSON.stringify(stageArrangement(1, item.id, mobile))))
     assert.equal(signatures.size, paths.length)

@@ -73,7 +73,7 @@ async function isCsrfFailure(response: Response): Promise<boolean> {
   return body?.code === 'CSRF_INVALID'
 }
 
-export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs?: number): Promise<Response> {
   const request = input instanceof Request ? input : undefined
   const method = (init.method || request?.method || 'GET').toUpperCase()
   const headers = new Headers(init.headers ?? request?.headers)
@@ -86,7 +86,7 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
 
   // 检测是否为文件上传请求（body 是 FormData）
   const isFileUpload = init.body instanceof FormData
-  const timeout = isFileUpload ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS
+  const timeout = timeoutMs ?? (isFileUpload ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS)
   const canRetry = isMutating && !(init.body instanceof ReadableStream)
   const retryInput = canRetry && request ? request.clone() : input
 

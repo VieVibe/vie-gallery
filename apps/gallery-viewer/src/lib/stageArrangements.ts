@@ -1,10 +1,12 @@
 import type { LayoutParams, PhotoArrangement } from '@vie/gallery-contracts'
+import { filmstripPose } from './filmstripPose'
 
 /** Every path brings d=0 to the reading position; all other photos remain reachable by stepping. */
-export function stageArrangement(d: number, arrangement: PhotoArrangement, mobile: boolean, params: LayoutParams = {}) {
+export function stageArrangement(d: number, arrangement: PhotoArrangement, mobile: boolean, params: LayoutParams = {}, frame?: { width: number; height: number }) {
   const a = Math.abs(d), offset = d * (params.spacing ?? 1)
   const radius = (params.radius ?? 340) / 340
   let x = 0, y = 0, z = 180, ry = 0, rz = 0
+  const scale = arrangement === 'tunnel' ? 1.12 : 1 - Math.min(a, 4) * .12
   switch (arrangement) {
     case 'tunnel': {
       // Successive works travel from the distant vanishing point, across the
@@ -26,9 +28,7 @@ export function stageArrangement(d: number, arrangement: PhotoArrangement, mobil
       break
     }
     case 'filmstrip':
-      x = offset * (mobile ? 305 : 445); y = Math.sin(offset * .5) * 18
-      z = 130 - a * 65; ry = Math.sin(offset * .3) * .08
-      break
+      return filmstripPose(offset, mobile, frame)
     case 'fan':
       x = Math.sin(offset * .38) * (mobile ? 410 : 780) * radius
       y = -Math.pow(Math.min(a, 5), 1.25) * 48
@@ -62,5 +62,5 @@ export function stageArrangement(d: number, arrangement: PhotoArrangement, mobil
       ry = Math.sin(offset * .78 * turns) * .48; rz = Math.sin(offset * .6) * -.07
     }
   }
-  return { x, y, z, ry, rz }
+  return { x, y, z, ry, rz, scale }
 }

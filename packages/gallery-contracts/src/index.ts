@@ -15,6 +15,7 @@ export interface ShareLink {
   token?: string
   rawToken?: string
   shareUrl?: string
+  shortUrl?: string | null
   status: ShareLinkStatus | string
   expiresAt?: string | null
   createdAt?: string | null

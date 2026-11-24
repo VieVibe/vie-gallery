@@ -1,8 +1,9 @@
 import { createDefaultViewerConfig, mergeViewerConfig, VIEWER_CONFIG_RULES, type ViewerConfig } from './viewerConfig'
 import { SCENE_PRESETS, sceneBackgroundUrl } from './galleryMedia'
 import { PHOTO_EFFECTS, PHOTO_ARRANGEMENTS, PRESET_PHOTO_EFFECTS, PRESET_PHOTO_ARRANGEMENTS, resolvePhotoArrangement } from './photoEffects'
+import { applySpatialPreset } from './curatedStyles'
 
-export type PresetName = typeof SCENE_PRESETS[number]['name'] | 'jade-flow' | 'aurora' | 'amber-hour' | 'rose-dream' | 'deep-ocean' | 'moonlight' | 'lavender' | 'silver-mist'
+export type PresetName = typeof SCENE_PRESETS[number]['name'] | 'jade-flow' | 'aurora' | 'amber-hour' | 'rose-dream' | 'deep-ocean' | 'moonlight' | 'lavender' | 'silver-mist' | 'film-exhibition'
 function scene(name: PresetName, patch: unknown): ViewerConfig {
   const base = mergeViewerConfig(createDefaultViewerConfig(), {
     presetName: name, customized: false,
@@ -32,6 +33,12 @@ function lightScene(name: PresetName, mode: 'helix' | 'carousel' | 'grid', color
   }), patch)
 }
 export const VIEWER_PRESETS: Record<PresetName, ViewerConfig> = {
+  'film-exhibition': lightScene('film-exhibition', 'carousel', '#171a1c', '#171a1c', {
+    background: { mode: 'solid', motion: false },
+    particles: { enabled: false, types: [], density: 0 },
+    effects: { photoFloat: false, photoEntrance: 'fade', entranceDuration: .6 },
+    camera: { autoRotate: false }, lighting: { timeOfDay: 'noon' }
+  }),
   'jade-flow': lightScene('jade-flow', 'helix', '#111a17', '#263b32', {}),
   aurora: lightScene('aurora', 'helix', '#080d22', '#305d76', { particles: { types: ['stars', 'meteors'], color: '#a8e5ff' }, effects: { bloom: bloom(.28) } }),
   'amber-hour': lightScene('amber-hour', 'carousel', '#20130c', '#784b2d', { particles: { types: ['fireflies'], color: '#ffce87' }, lighting: { timeOfDay: 'sunset' } }),
@@ -53,7 +60,7 @@ export const VIEWER_PRESETS: Record<PresetName, ViewerConfig> = {
 /** 新相册/未配置相册的默认推荐场景。改这一个常量即可全端（admin 草稿、访客端兜底、发布初始化）生效。 */
 export const RECOMMENDED_SCENE_PRESET: PresetName = 'jade-flow'
 export function createRecommendedViewerConfig(): ViewerConfig {
-  return structuredClone(VIEWER_PRESETS[RECOMMENDED_SCENE_PRESET])
+  return applySpatialPreset(VIEWER_PRESETS[RECOMMENDED_SCENE_PRESET], 'tide')
 }
 
 /** Cards describe the actual recipe, so labels cannot drift from its treatment or composition. */
@@ -67,6 +74,7 @@ function presetCard(name: PresetName, label: string, description: string) {
     accent: preset.background?.secondaryColor ?? preset.background?.color ?? '#657eab' }
 }
 export const VIEWER_PRESET_CARDS = [
+  presetCard('film-exhibition', '胶片影展', '适合原片叙事、旅行影集与连续的人物故事'),
   presetCard('jade-flow', '翡翠流光', '适合旅行、日常与自然题材'),
   presetCard('aurora', '极光星河', '适合城市夜景与未来感创作'),
   presetCard('amber-hour', '琥珀时刻', '适合街拍、人文与温暖的旧时光'),

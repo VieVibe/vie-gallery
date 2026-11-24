@@ -15,7 +15,7 @@ const categories = [
   { id: 'panorama', label: '全景空间' }
 ]
 function thumbnail(name: PresetName) {
-  return `${import.meta.env.BASE_URL}effect-previews/${name}.webp`
+  return `${import.meta.env.BASE_URL}effect-previews/${name}.${name === 'film-exhibition' ? 'jpg' : 'webp'}`
 }
 function swatch(name: PresetName) {
   const bg = VIEWER_PRESETS[name].background!
@@ -25,7 +25,7 @@ function swatch(name: PresetName) {
 
 <template>
   <section class="side-block preset-section">
-    <div class="section-heading"><h2>选择整体风格</h2><span>16 种灵感</span></div>
+    <div class="section-heading"><h2>选择整体风格</h2><span>{{ VIEWER_PRESET_CARDS.length }} 种灵感</span></div>
     <p class="section-intro">编排、照片质感与空间氛围，一次搭配好。选定后，仍可逐项微调。</p>
     <div class="selected-look" role="status">
       <span v-if="selected" class="selected-swatch" :style="swatch(selected.name)" aria-hidden="true"><img :src="thumbnail(selected.name)" alt="" /></span>

@@ -1,11 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { createRecommendedViewerConfig } from '@vie/gallery-contracts'
+import { VIEWER_PRESETS } from '@vie/gallery-contracts'
 import { SpatialStagePlugin } from '../src/plugins/SpatialStagePlugin'
 import { createViewerContext } from './helpers/viewerContext'
 import type { PhotoMesh } from '../src/core/types'
 import { stageFraming } from '../src/lib/stageFraming'
+import { applyPhotoArrangement } from '@vie/gallery-contracts'
 
 function fixture(count = 12, reduced = true) {
   const photos = Array.from({ length: count }, (_, index) => {
@@ -13,12 +14,45 @@ function fixture(count = 12, reduced = true) {
     mesh.userData = {index,url:'',thumbnailUrl:''}
     return mesh
   })
-  const context = createViewerContext(createRecommendedViewerConfig(), photos)
+  const context = createViewerContext(structuredClone(VIEWER_PRESETS['jade-flow']), photos)
   context.reducedMotion = () => reduced
   Object.assign(context.renderer, {domElement:Object.assign(new EventTarget(), {hasPointerCapture:()=>false})})
   const stage = new SpatialStagePlugin()
   return {context,stage}
 }
+
+test('filmstrip preserves photo identity, aspect and navigation for small and large albums', () => {
+  for (const count of [1, 2, 3, 50]) for (const mobile of [false, true]) {
+    const { context, stage } = fixture(count)
+    context.config = applyPhotoArrangement(context.config, 'filmstrip')
+    const camera = context.camera as THREE.PerspectiveCamera
+    camera.aspect = mobile ? 390 / 844 : 1440 / 900
+    const photos = [...context.photos]
+    let index = -1
+    context.on('stage:change', (state: { index: number }) => { index = state.index })
+    stage.install(context)
+    const visited = new Set([index])
+    for (let step = 1; step <= count; step++) {
+      context.emit('stage:step', 1); stage.update(.05, step)
+      visited.add(index)
+      const active = photos[index]
+      assert.equal(active.visible, true)
+      assert.equal(active.scale.x, active.scale.y, 'original aspect ratio is retained')
+      assert.deepEqual(context.photos, photos)
+      for (const photo of photos) {
+        assert.ok([...photo.position, ...photo.scale].every(Number.isFinite))
+        assert.ok(photo.scale.x > 0)
+      }
+    }
+    assert.equal(visited.size, count)
+    assert.equal(index, 0)
+    const before = photos[0].position.clone()
+    stage.update(.05, 1000)
+    assert.ok(photos[0].position.distanceTo(before) < 1e-6, 'reduced motion has no autonomous movement')
+    stage.uninstall()
+    assert.equal(context.scene.children.length, 0)
+  }
+})
 
 test('stage can be unloaded before installation and reused without duplicate orbital geometry', () => {
   const {context,stage} = fixture()

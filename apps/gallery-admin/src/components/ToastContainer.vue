@@ -46,7 +46,8 @@ function handleAction(toast: { id: string; action?: { handler: () => void } }) {
 
 <style scoped>
 .toast-container { position: fixed; top: 20px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; width: min(400px, calc(100vw - 48px)); pointer-events: none; }
-.toast-card { pointer-events: auto; display: flex; align-items: flex-start; gap: 12px; padding: 18px; border-radius: 12px; background: var(--bg-surface); box-shadow: var(--shadow-lg); }
+.toast-card { display: flex; align-items: flex-start; gap: 12px; padding: 18px; border-radius: 12px; background: var(--bg-surface); box-shadow: var(--shadow-lg); }
+.toast-close, .toast-action { pointer-events: auto; }
 .toast-icon { display: grid; place-items: center; flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; }
 .toast-success .toast-icon { color: var(--brand-deep); background: var(--mint-soft); }
 .toast-error .toast-icon { color: var(--status-error); background: #faece8; }

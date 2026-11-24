@@ -50,8 +50,22 @@ const {
 } = useShareDelivery(galleryId, computed(() => props.gallery))
 
 const showModal = computed(() => props.show)
-const publicUrl = computed(() => props.gallery?.visibility === 'PUBLIC' && props.gallery.status === 'PUBLISHED'
+const isPublished = computed(() => props.gallery?.status === 'PUBLISHED')
+const directUrl = computed(() => props.gallery && isPublished.value && props.gallery.visibility !== 'PRIVATE'
   ? `${viewerOrigin()}/g/${encodeURIComponent(props.gallery.slug)}` : '')
+const availableLink = computed(() => shareLinks.value.find(link =>
+  link.status === 'ACTIVE' && shortUrls.value[link.id] && (!link.expiresAt || Date.parse(link.expiresAt) > Date.now())
+))
+const quickUrl = computed(() => {
+  if (directUrl.value) return directUrl.value
+  if (loading.value && !generating.value) return ''
+  const latest = latestCreatedLink.value
+  const latestStatus = shareLinks.value.find(link => link.id === latest?.id)?.status
+  if (latest && (!latestStatus || latestStatus === 'ACTIVE') && (!latest.expiresAt || Date.parse(latest.expiresAt) > Date.now())) {
+    return latest.shortUrl || latest.shareUrl
+  }
+  return !error.value && availableLink.value ? shortUrls.value[availableLink.value.id] : ''
+})
 const { root: modalRoot } = useModalFocus(showModal, { onEscape: () => emit('close') })
 
 const shareExpiryDays = ref(30)
@@ -135,14 +149,18 @@ watch(() => props.show, (isShown) => {
     copied.value = false
     activeShareTab.value = 'link'
     sharingLink.value = null
-    void loadShareLinks()
+    if (!isPublished.value || props.gallery.visibility === 'PRIVATE') void loadShareLinks()
   }
 })
 
-async function handleGenerateLink() {
+function refreshShareOptions(event: Event) {
+  if ((event.currentTarget as HTMLDetailsElement).open && !loading.value) void loadShareLinks()
+}
+
+async function handleGenerateLink(expiryDays = shareExpiryDays.value) {
   if (!props.gallery || generating.value) return
   try {
-    const url = await createShareLink(shareExpiryDays.value)
+    await createShareLink(expiryDays)
     toast.success('分享链接已生成！')
   } catch (err) {
     toast.error(err instanceof Error ? err.message : '生成分享链接失败。')
@@ -226,8 +244,8 @@ function shareStatusLabel(status: string) {
               <Icon name="share" :size="20" />
             </div>
             <div>
-              <h3 id="share-delivery-title">{{ publicUrl ? '展览已就绪' : '分享展厅' }}</h3>
-              <p v-if="gallery">{{ publicUrl ? `把「${gallery.name}」分享给朋友，打开就能看。` : `设置「${gallery.name}」的访问方式` }}</p>
+              <h3 id="share-delivery-title">{{ isPublished ? '分享相册' : '相册访问设置' }}</h3>
+              <p v-if="gallery">{{ gallery.name }}</p>
             </div>
           </div>
           <button class="close-icon-btn" type="button" aria-label="关闭" @click="$emit('close')">
@@ -251,15 +269,26 @@ function shareStatusLabel(status: string) {
           <PosterStudio v-if="show && gallery" :gallery="gallery" :active="activeShareTab === 'poster'" :can-create="isOwner === true" @downloaded="loadShareLinks" />
         </div>
         <div id="share-link-panel" v-show="activeShareTab === 'link'" role="tabpanel" aria-labelledby="share-link-tab" class="modal-body">
-          <section v-if="publicUrl" class="direct-share">
-            <label for="public-gallery-link">展厅链接</label>
-            <input id="public-gallery-link" :value="publicUrl" readonly @focus="($event.target as HTMLInputElement).select()" />
-            <div class="direct-share-actions">
-              <button class="btn btn-primary" type="button" @click="copyUrl(publicUrl)">{{ copied ? '已复制' : '复制链接' }}</button>
-              <a class="btn btn-secondary" :href="publicUrl" target="_blank" rel="noopener">打开展览</a>
-            </div>
+          <section v-if="isPublished" class="direct-share">
+            <template v-if="quickUrl">
+              <label for="quick-gallery-link">相册链接</label>
+              <input id="quick-gallery-link" :value="quickUrl" readonly @focus="($event.target as HTMLInputElement).select()" />
+              <p v-if="gallery?.visibility === 'PASSWORD'" class="delivery-note">访客打开链接后需要输入访问密码。</p>
+              <div class="direct-share-actions">
+                <button class="btn btn-primary" type="button" @click="copyUrl(quickUrl)">{{ copied ? '已复制' : '复制链接' }}</button>
+                <a class="btn btn-secondary" :href="quickUrl" target="_blank" rel="noopener">打开相册</a>
+              </div>
+            </template>
+            <template v-else>
+              <p v-if="error" class="delivery-note" role="status">{{ error }}</p>
+              <p v-else-if="!loading" class="delivery-note">收到专属链接的人可以查看，有效期 30 天。</p>
+              <button v-if="error" class="btn btn-secondary" type="button" :disabled="loading" @click="loadShareLinks">重试加载链接</button>
+              <button v-else class="btn btn-primary" type="button" :disabled="loading || generating || !canManage" @click="handleGenerateLink(30)">
+                {{ loading ? '正在查找链接…' : generating ? '正在生成…' : '生成分享链接' }}
+              </button>
+            </template>
           </section>
-          <details :open="!publicUrl" class="share-options">
+          <details :open="!isPublished" class="share-options" @toggle="refreshShareOptions">
           <summary>更多分享设置</summary>
           <!-- Access Mode Section -->
           <section class="delivery-section">
@@ -381,7 +410,7 @@ function shareStatusLabel(status: string) {
                 class="btn btn-primary generate-btn"
                 type="button"
                 :disabled="generating || gallery?.status !== 'PUBLISHED'"
-                @click="handleGenerateLink"
+                @click="handleGenerateLink()"
               >
                 <Icon name="sparkles" :size="14" />
                 <span>{{ generating ? '生成中…' : '生成交付链接' }}</span>
@@ -422,9 +451,6 @@ function shareStatusLabel(status: string) {
               </p>
               <p v-else class="delivery-note full-url-note">
                 短链接生成失败，可使用上方完整链接。
-              </p>
-              <p class="delivery-note">
-                将此链接直接发送给访客，访客无需注册账号即可进入展厅体验沉浸式画廊。
               </p>
               <ShareButtons
                 :share-url="latestCreatedLink.shortUrl || latestCreatedLink.shareUrl"

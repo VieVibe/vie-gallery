@@ -44,9 +44,21 @@ export async function issuePreviewToken(galleryId: string): Promise<PreviewToken
 }
 
 export async function openCreatorPreview(galleryId: string, slug: string, embed = false) {
-  const issued = await issuePreviewToken(galleryId)
-  const url = creatorPreviewUrl(slug, issued.token, embed)
-  const opened = window.open(url, '_blank', 'noopener,noreferrer')
+  const opened = window.open('about:blank', '_blank')
   if (!opened) throw new Error('浏览器拦截了新窗口，请允许弹窗后再试。')
-  return issued
+  try {
+    opened.opener = null
+    opened.document.title = '正在打开相册…'
+    const issued = await issuePreviewToken(galleryId)
+    if (!opened.closed) {
+      const link = opened.document.createElement('a')
+      link.href = creatorPreviewUrl(slug, issued.token, embed)
+      link.referrerPolicy = 'no-referrer'
+      link.click()
+    }
+    return issued
+  } catch (cause) {
+    opened.close()
+    throw cause
+  }
 }

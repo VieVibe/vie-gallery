@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { PHOTO_ARRANGEMENTS, applyPhotoArrangement, resolvePhotoArrangement, type PhotoArrangement, type LayoutMode, type ViewerConfig, type ConfigIssue } from '@vie/gallery-contracts'
+import { PHOTO_ARRANGEMENTS, SPATIAL_PRESETS, applyPhotoArrangement, resolvePhotoArrangement, type PhotoArrangement, type LayoutMode, type ViewerConfig, type ConfigIssue } from '@vie/gallery-contracts'
 import ConfigField from './ConfigField.vue'
 const props = defineProps<{ config: ViewerConfig; issues: ConfigIssue[]; disabled: boolean }>()
 const emit = defineEmits<{ patch: [input: unknown] }>()
@@ -8,6 +8,7 @@ const curated = computed(() => props.config.layout.params?.composition === 'cura
 const arrangement = computed(() => resolvePhotoArrangement(props.config))
 const isBook = computed(() => curated.value && arrangement.value === 'book')
 const selectedArrangement = computed(() => PHOTO_ARRANGEMENTS.find(item => item.id === arrangement.value))
+const legacyArrangements = PHOTO_ARRANGEMENTS.filter(item => !SPATIAL_PRESETS.some(preset => preset.id === item.id))
 function hasIssue(path: string) { return props.issues.some(issue => issue.path === path) }
 const spatialLayouts: { id: LayoutMode; label: string; caption: string }[] = [
   { id: 'sphere', label: '环形展厅', caption: '照片环绕四周' }, { id: 'carousel', label: '线性长廊', caption: '沿展线徐徐展开' },
@@ -69,7 +70,7 @@ function frames(kind: string) {
     <p v-for="issue in issues.filter(item => item.path === 'layout.params.composition')" :key="issue.path" class="choice-error" role="alert">{{ issue.message }}</p>
     <div class="layout-heading"><h3>{{ curated ? '照片编排' : '空间布局' }}</h3><span>{{ curated ? selectedArrangement?.label : spatialLayouts.find(item => item.id === config.layout.mode)?.label }}</span></div>
     <div class="layout-options" role="group" :aria-label="curated ? '照片编排' : '空间布局'">
-      <template v-if="curated"><button v-for="item in PHOTO_ARRANGEMENTS" :key="item.id" type="button" :disabled="disabled" :aria-pressed="arrangement === item.id" :aria-label="`${item.label} · ${item.caption}`" @click="chooseArrangement(item.id)">
+      <template v-if="curated"><button v-for="item in legacyArrangements" :key="item.id" type="button" :disabled="disabled" :aria-pressed="arrangement === item.id" :aria-label="`${item.label} · ${item.caption}`" @click="chooseArrangement(item.id)">
         <svg viewBox="0 0 120 56" aria-hidden="true"><rect v-for="(frame, index) in frames(item.id)" :key="index" :x="frame.x" :y="frame.y" width="18" height="19" rx="2" :transform="`rotate(${frame.angle}, ${frame.x + 9}, ${frame.y + 9.5})`" :opacity=".4 + (index % 3) * .2" /></svg><strong>{{ item.label }}</strong>
       </button></template>
       <template v-else><button v-for="item in spatialLayouts" :key="item.id" type="button" :disabled="disabled" :aria-pressed="config.layout.mode === item.id" :aria-label="`${item.label} · ${item.caption}`" @click="chooseMode(item.id)">

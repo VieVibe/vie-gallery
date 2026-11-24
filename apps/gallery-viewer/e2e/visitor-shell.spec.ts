@@ -91,7 +91,7 @@ test('gallery controls and editorial photos fit a narrow viewport', async ({ pag
     await page.setViewportSize({ width, height: width === 1440 ? 1000 : 900 })
     await page.goto('/g/effects-fixture')
     await expect(page.locator('.photo-wall img').first()).toBeVisible()
-    await expect(page.getByRole('button', { name: '平面展览', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByRole('button', { name: '空间漫游', exact: true })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     const tools = await page.locator('.exhibition-tools').boundingBox()
     expect(tools!.x).toBeGreaterThan(40)

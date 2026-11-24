@@ -4,6 +4,7 @@ import Icon from '../Icon.vue'
 
 const props = defineProps<{
   uploading: boolean
+  compact?: boolean
   progress?: number
   statusText?: string
 }>()
@@ -86,7 +87,7 @@ onUnmounted(() => document.removeEventListener('paste', handlePaste))
 <template>
   <section
     class="upload-tile"
-    :class="{ 'drag-over': isDragOver, 'is-uploading': uploading }"
+    :class="{ 'drag-over': isDragOver, 'is-uploading': uploading, 'is-compact': compact }"
     role="button"
     :tabindex="uploading ? -1 : 0"
     :aria-disabled="uploading"
@@ -100,11 +101,14 @@ onUnmounted(() => document.removeEventListener('paste', handlePaste))
   >
     <template v-if="!uploading">
       <span class="upload-icon">
-        <Icon name="upload" :size="28" />
+        <Icon name="upload" :size="compact ? 16 : 28" />
       </span>
-      <strong>添加你的作品</strong>
-      <span class="upload-instruction">拖拽到这里，或点击选择照片</span>
-      <small>JPG / PNG / WebP，单张不超过 50MB</small>
+      <span v-if="compact" class="compact-upload-label">上传照片</span>
+      <template v-else>
+        <strong>添加照片</strong>
+        <span class="upload-instruction">拖拽到这里，或点击选择照片</span>
+        <small>JPG / PNG / WebP，单张不超过 50MB</small>
+      </template>
     </template>
     <div v-else class="upload-progress" role="status" @click.stop>
       <span class="upload-icon spinning-icon">
@@ -115,7 +119,6 @@ onUnmounted(() => document.removeEventListener('paste', handlePaste))
         <div class="progress-bar" :style="{ width: `${Math.min(100, Math.max(2, progress))}%` }"></div>
       </div>
       <small v-if="typeof progress === 'number' && progress > 0">{{ progress }}%</small>
-      <small>处理进度可在上传任务中查看</small>
     </div>
     <input ref="input" type="file" multiple accept="image/jpeg,image/png,image/webp" hidden @change="handleInput" />
   </section>
@@ -153,6 +156,25 @@ onUnmounted(() => document.removeEventListener('paste', handlePaste))
 .upload-tile.is-uploading {
   cursor:progress
 }
+
+.upload-tile.is-compact {
+  min-height: 44px;
+  padding: 8px 12px;
+  flex-direction: row;
+  gap: 7px;
+  border: 1px solid #c6d2c3;
+  border-radius: 6px;
+  background: #fdfdf8;
+  color: #264635;
+  font-size: .875rem;
+}
+.upload-tile.is-compact:hover:not(.is-uploading), .upload-tile.is-compact.drag-over { background: #eaf0e7; }
+.is-compact .upload-icon { width: 16px; height: 20px; margin: 0; }
+.is-compact .upload-icon svg { width: 16px; height: 16px; }
+.is-compact .compact-upload-label { font-weight: 650; white-space: nowrap; }
+.is-compact .upload-progress { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.is-compact .upload-progress .progress-track { display: none; }
+.is-compact .upload-progress strong, .is-compact .upload-progress small { font-size: .8125rem; }
 
 .upload-icon {
   display:grid;

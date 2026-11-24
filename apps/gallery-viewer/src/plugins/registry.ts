@@ -2,6 +2,7 @@
 export const pluginRegistry = {
   PhotoSurface: () => import('./PhotoSurfacePlugin').then(m => new m.PhotoSurfacePlugin()),
   SpatialStage: () => import('./SpatialStagePlugin').then(m => new m.SpatialStagePlugin()),
+  CollectionStage: () => import('./CollectionStagePlugin').then(m => new m.CollectionStagePlugin()),
   PhotoTheatre: () => import('./PhotoTheatrePlugin').then(m => new m.PhotoTheatrePlugin()),
   Layout: () => import('./LayoutPlugin').then(m => new m.LayoutPlugin()),
   ClickRipple: () => import('./ClickRipplePlugin').then(m => new m.ClickRipplePlugin()),

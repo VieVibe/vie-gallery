@@ -66,7 +66,8 @@ public class ShareLinkController {
                         view.status().name(),
                         view.expiresAt(),
                         view.lastAccessedAt(),
-                        view.createdAt()
+                        view.createdAt(),
+                        view.shortUrl()
                 ))
                 .toList();
     }
@@ -170,7 +171,8 @@ public class ShareLinkController {
             String status,
             Instant expiresAt,
             Instant lastAccessedAt,
-            Instant createdAt
+            Instant createdAt,
+            String shortUrl
     ) {}
 
     public record GenerateSharePosterRequest(String template, String format, String title,

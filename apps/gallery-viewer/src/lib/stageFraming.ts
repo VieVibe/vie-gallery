@@ -9,6 +9,7 @@ export function stageFraming(width: number, height: number, fov: number, distanc
   const worldHeight = 2 * Math.tan(fov * Math.PI / 360) * distance
   const unitsPerPixel = worldHeight / height
   return {
+    top, bottom,
     width: Math.max(80, usableWidth) * unitsPerPixel,
     height: usableHeight * unitsPerPixel,
     centerY: (height / 2 - top - usableHeight / 2) * unitsPerPixel,

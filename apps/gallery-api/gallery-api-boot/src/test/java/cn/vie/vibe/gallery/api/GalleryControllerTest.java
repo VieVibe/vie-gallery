@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.*;
 
@@ -96,6 +97,30 @@ class GalleryControllerTest {
         assertEquals(0, resp.failedPhotoCount());
         assertEquals(0, resp.processingCount());
         assertFalse(resp.hasUnpublishedConfig());
+    }
+
+    @Test
+    void galleryWithoutSelectedCoverShowsTheFirstReadyPhoto() {
+        UUID galleryId = UUID.randomUUID();
+        UUID objectId = UUID.randomUUID();
+        Instant now = Instant.now();
+        Gallery gallery = new Gallery(galleryId, tenantId, "album", "Album", GalleryVisibility.PRIVATE,
+                null, null, false, now, GalleryStatus.DRAFT, null, now);
+        Photo photo = new Photo(UUID.randomUUID(), tenantId, galleryId, objectId, "山间来信",
+                0, false, PhotoStatus.READY, now);
+        StorageObject image = new StorageObject(objectId, tenantId, "bucket", "original.jpg", "thumb.jpg",
+                "image/jpeg", 100L, 1200, 800, null, StorageObjectStatus.READY, now);
+        when(facade.list()).thenReturn(List.of(gallery));
+        when(photos.countPublicReadyByGalleryId(tenantId, galleryId)).thenReturn(1);
+        when(photos.findPublicReadyByGalleryId(tenantId, galleryId, 0, 1)).thenReturn(List.of(photo));
+        when(objects.findById(tenantId, objectId)).thenReturn(Optional.of(image));
+        when(storage.createReadUrl("thumb.jpg", ObjectStoragePort.DEFAULT_READ_URL_TTL)).thenReturn(URI.create("https://example.test/thumb.jpg"));
+        when(signedUrlService.signPhotoUrl("https://example.test/thumb.jpg", tenantId.toString())).thenReturn("https://example.test/thumb.jpg?signed");
+        when(tasks.summaryByGallery(tenantId, galleryId)).thenReturn(TaskSummary.empty());
+
+        GalleryController.GalleryResponse response = controller.list().get(0);
+        assertEquals("https://example.test/thumb.jpg?signed", response.coverThumbnailUrl());
+        assertNull(response.coverPhotoId());
     }
 
     @Test

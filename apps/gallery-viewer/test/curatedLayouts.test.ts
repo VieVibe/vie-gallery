@@ -1,13 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { createRecommendedViewerConfig } from '@vie/gallery-contracts'
+import { VIEWER_PRESETS } from '@vie/gallery-contracts'
 import { generateLayout } from '../src/lib/layouts'
 import { LayoutPlugin } from '../src/plugins/LayoutPlugin'
 import { createViewerContext, photo } from './helpers/viewerContext'
 
 test('curated pairs stay centered and large collections retain spatial separation', () => {
-  const config = createRecommendedViewerConfig()
+  const config = structuredClone(VIEWER_PRESETS['jade-flow'])
   const pair = generateLayout(2, config.layout)
   assert.ok(Math.abs(pair[0].x + pair[1].x) < 1)
   assert.ok(Math.abs(pair[0].x - pair[1].x) >= 160)
@@ -20,7 +20,7 @@ test('curated pairs stay centered and large collections retain spatial separatio
 })
 
 test('portrait wave reflows into two columns without squeezing photographs together', () => {
-  const config = createRecommendedViewerConfig()
+  const config = structuredClone(VIEWER_PRESETS['jade-flow'])
   config.layout.mode = 'grid'
   const context = createViewerContext(config, Array.from({ length: 12 }, () => photo()))
   ;(context.camera as THREE.PerspectiveCamera).aspect = 390 / 844

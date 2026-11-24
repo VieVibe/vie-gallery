@@ -14,5 +14,6 @@ public record ShareLinkView(
         ShareLinkStatus status,
         Instant expiresAt,
         Instant lastAccessedAt,
-        Instant createdAt
+        Instant createdAt,
+        String shortUrl
 ) {}

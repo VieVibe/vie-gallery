@@ -6,6 +6,7 @@ const FOCUSABLE = [
   'input:not([disabled]):not([type="hidden"])',
   'select:not([disabled])',
   'textarea:not([disabled])',
+  'details > summary:first-of-type',
   '[tabindex]:not([tabindex="-1"])'
 ].join(',')
 
@@ -29,6 +30,7 @@ export function useModalFocus(
   active: MaybeRefOrGetter<boolean>,
   options: {
     focusContainer?: boolean
+    initialFocus?: () => HTMLElement | null
     onEscape?: () => void
     disabled?: MaybeRefOrGetter<boolean>
   } = {}
@@ -102,7 +104,8 @@ export function useModalFocus(
     window.addEventListener('keydown', onKeydown, true)
     if (modalStack.at(-1) !== token) return
     const items = focusables()
-    ;(options.focusContainer ? root.value : items[0] || root.value)?.focus()
+    const target = options.focusContainer ? root.value : options.initialFocus?.() ?? items[0] ?? root.value
+    target?.focus()
   }, { immediate: true, flush: 'post' })
 
   onUnmounted(() => {

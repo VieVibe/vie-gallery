@@ -45,10 +45,12 @@ test('photo-first entry preserves the published recipe and restores free explora
   expect(errors).toEqual([])
 })
 
-test('creator previews retain the authored spatial layout', async ({ page }) => {
+test('creator previews start in the album and retain the authored spatial layout on demand', async ({ page }) => {
   const config = normalizeViewerConfig({ layout: { mode: 'sphere' }, camera: { autoRotate: false }, particles: { enabled: false } }).config
   const { errors } = await mockGallery(page, { config })
   await page.goto('/g/effects-fixture?preview=creator-preview')
+  await expect(page.getByRole('button', { name: '开始浏览' })).toBeVisible()
+  await page.getByRole('button', { name: '空间漫游', exact: true }).click()
   await expect(page.getByRole('button', { name: '螺旋', exact: true })).toBeVisible()
   await expect(page.locator('.stage-info')).toBeHidden()
   const snapshot = await page.evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__!.snapshot())

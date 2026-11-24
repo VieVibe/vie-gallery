@@ -1,25 +1,24 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
-import { CURATED_STYLES, applyCuratedStyle, resolveCuratedStyle, serializeViewerConfig, type CuratedStyle } from '@vie/gallery-contracts'
+import { SPATIAL_PRESETS, applySpatialPreset, resolveSpatialPreset, serializeViewerConfig, type SpatialPreset } from '@vie/gallery-contracts'
 import { useViewerConfigEditor } from '../../composables/useViewerConfigEditor'
 import Icon from '../Icon.vue'
 const props = defineProps<{ galleryId: string; canWrite: boolean; photos: { thumbnailUrl?: string | null }[] }>()
 const emit = defineEmits<{ busy: [value: boolean]; saved: []; ready: [value: boolean] }>()
 const editor = useViewerConfigEditor(props.galleryId, { canWrite: () => props.canWrite })
 const loaded = ref(false), message = ref('')
-const selected = computed(() => resolveCuratedStyle(editor.config.value))
-const hasCuratedStyle = computed(() => selected.value !== undefined)
+const selected = computed(() => resolveSpatialPreset(editor.config.value))
 async function load() {
   emit('busy', true); message.value = ''
   try { await editor.load(); loaded.value = true; emit('ready', true) }
   catch { loaded.value = false; emit('ready', false); message.value = '风格没有载入，请重试。' }
   finally { emit('busy', false) }
 }
-async function choose(mode: CuratedStyle) {
+async function choose(mode: SpatialPreset) {
   if (!loaded.value || editor.saving.value || !props.canWrite || selected.value === mode) return
   emit('busy', true); message.value = ''
   const previous = serializeViewerConfig(editor.config.value)
-  editor.replace(serializeViewerConfig(applyCuratedStyle(editor.config.value, mode)))
+  editor.replace(serializeViewerConfig(applySpatialPreset(editor.config.value, mode)))
   try {
     if (await editor.save()) { message.value = '风格已保存'; emit('saved') }
     else { editor.replace(previous, true); message.value = '风格没有保存，请重新选择。' }
@@ -30,18 +29,22 @@ onMounted(load)
 
 <template>
   <section class="quick-styles" aria-label="选择展示风格">
-    <div class="style-heading"><h2>观看编排</h2><span class="style-autosave"><Icon name="check" :size="13" /> 选好即保存</span></div>
-    <p class="style-intro">先选择观看编排，再到展示设计中搭配照片质感与空间氛围。切换编排会保留已保存的氛围设置。</p>
+    <div class="style-heading"><h2>默认展示效果</h2><span class="style-autosave"><Icon name="check" :size="13" /> 选好即保存</span></div>
+    <p class="style-intro">选一个发布后的 3D 场景。访客也可以切换。</p>
     <div class="style-choices">
-      <button v-for="style in CURATED_STYLES" :key="style.id" type="button" :class="style.id" :aria-pressed="loaded && selected === style.id" :disabled="!loaded || editor.saving.value || !canWrite" @click="choose(style.id)">
-        <span class="style-miniature" :style="{ '--tone': style.color }" aria-hidden="true">
-          <span v-for="i in 5" :key="i" class="mini-photo" :style="{ '--i': i }"><img v-if="photos[(i - 1) % Math.max(1, photos.length)]?.thumbnailUrl" :src="photos[(i - 1) % photos.length]?.thumbnailUrl || ''" alt="" /></span>
+      <button v-for="style in SPATIAL_PRESETS" :key="style.id" type="button" :class="style.id" :aria-pressed="loaded && selected === style.id" :disabled="!loaded || editor.saving.value || !canWrite" @click="choose(style.id)">
+        <span class="style-miniature" aria-hidden="true">
+          <span v-for="i in 8" :key="i" class="mini-photo" :style="{
+            '--step': Math.floor((i - 1) / 2), '--side': i % 2 ? -1 : 1,
+            '--col': (i - 1) % 4 - 1.5, '--row': i > 4 ? .5 : -.5,
+            '--orbit-x': Math.cos(i * Math.PI / 4), '--orbit-y': Math.sin(i * Math.PI / 4)
+          }"><img v-if="photos[(i - 1) % Math.max(1, photos.length)]?.thumbnailUrl" :src="photos[(i - 1) % photos.length]?.thumbnailUrl || ''" alt="" /></span>
         </span>
         <span class="style-name">{{ style.label }} <span v-if="loaded && selected === style.id" class="style-check"><Icon name="check" :size="12" /></span></span>
         <small>{{ style.caption }}</small>
       </button>
     </div>
-    <p class="style-feedback" :class="{ 'is-error': !loaded && message }" role="status">{{ editor.saving.value ? '正在保存风格…' : message || (!loaded ? '正在载入展示风格…' : hasCuratedStyle ? '发布后，访客会以此风格浏览作品。' : '当前为自定义布局。选择一种风格即可替换，或在更多设置中继续调整。') }}</p>
+    <p v-if="editor.saving.value || message || !loaded" class="style-feedback" :class="{ 'is-error': !loaded && message }" role="status">{{ editor.saving.value ? '正在保存风格…' : message || '正在载入展示效果…' }}</p>
     <button v-if="!loaded && message" class="retry-style" type="button" @click="load">重试载入</button>
   </section>
 </template>
@@ -93,7 +96,7 @@ onMounted(load)
 
 .style-choices {
   display:grid;
-  grid-template-columns:repeat(5,minmax(0,1fr));
+  grid-template-columns:repeat(3,minmax(0,1fr));
   gap:12px
 }
 
@@ -127,24 +130,26 @@ onMounted(load)
 }
 
 .style-miniature {
+  --tile-step: clamp(14px, 3vw, 39px);
+  --orbit-radius: clamp(27px, 6vw, 79px);
   display:block;
   position:relative;
   height:146px;
   border-radius:5px;
-  background:radial-gradient(ellipse at 60% 100%,var(--tone),#18251f 85%);
+  background:radial-gradient(ellipse at 53% 100%, #cde4d0, #f2f7ef 82%);
   overflow:hidden;
   perspective:500px
 }
 
 .mini-photo {
   position:absolute;
-  top:38%;
-  left:44%;
-  width:42px;
-  height:50px;
-  border:1px solid #c8d2c8;
-  background:linear-gradient(150deg,#d8d7c5,#80948b 60%,#344b41);
-  box-shadow:4px 5px 13px #0005
+  top:50%;
+  left:50%;
+  width:36px;
+  height:26px;
+  border:1px solid #f9fdf6;
+  background:linear-gradient(150deg,#eef3e6,#b5cdb9 62%,#769982);
+  box-shadow:1px 5px 9px #4a6b5030
 }
 
 .mini-photo img {
@@ -153,34 +158,17 @@ onMounted(load)
   object-fit:cover
 }
 
-.helix .mini-photo {
-  transform:translate(calc((var(--i) - 3)*26px),calc((var(--i) - 3)*-17px)) rotateY(calc((var(--i) - 3)*16deg)) rotate(-12deg)
+.tide .mini-photo {
+  transform: translate(calc(-50% + var(--col) * var(--tile-step)), calc(-50% + var(--row) * 35px + var(--col) * 5px))
+    rotateY(calc(var(--col) * -17deg)) rotate(calc(var(--col) * -6deg));
 }
-
-.carousel .mini-photo {
-  transform:translateX(calc((var(--i) - 3)*39px)) translateZ(calc((3 - var(--i))*8px)) rotateY(calc((var(--i) - 3)*-23deg))
+.fold .mini-photo {
+  transform: translate(calc(-50% + var(--side) * (var(--orbit-radius) - var(--step) * 9px)), calc(-50% + var(--step) * 5px))
+    translateZ(calc((1 - var(--step)) * 70px)) rotateY(calc(var(--side) * -40deg));
 }
-
-.grid .mini-photo {
-  transform:translate(calc((var(--i) - 3)*38px),calc((var(--i) - 3)*8px)) rotateY(-25deg)
-}
-
-.book .mini-photo {
-  width:58px;
-  height:70px;
-  top:27%;
-  left:36%;
-  border:3px solid #e8e2d2;
-  transform-origin:left center;
-  transform:translateX(calc((var(--i) - 3)*4px)) rotateY(calc((var(--i) - 3)*-22deg));
-}
-
-.tunnel .mini-photo {
-  top:25%;
-  left:35%;
-  width:62px;
-  height:78px;
-  transform:translateX(calc((var(--i) - 3)*18px)) translateZ(calc((var(--i) - 3)*-80px)) rotateY(-15deg);
+.space .mini-photo {
+  transform: translate(calc(-50% + var(--orbit-x) * var(--orbit-radius)), calc(-50% + var(--orbit-y) * 39px))
+    translateZ(calc(var(--orbit-y) * 27px)) rotateY(calc(var(--orbit-x) * -19deg));
 }
 
 .style-name {
@@ -232,10 +220,6 @@ onMounted(load)
   color:var(--brand-deep)
 }
 
-@media(max-width:1050px) {
-  .style-choices { grid-template-columns:repeat(3,minmax(0,1fr)) }
-}
-
 @media(max-width:640px) {
   .quick-styles {
     padding:20px 14px
@@ -247,15 +231,16 @@ onMounted(load)
     font-size:10px
   }
   .style-choices {
-    grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:10px
+    gap:7px
   }
   .style-miniature {
-    height:108px
+    --tile-step: clamp(13px, 4vw, 23px);
+    --orbit-radius: clamp(20px, 5.4vw, 36px);
+    height:92px
   }
   .mini-photo {
-    width:29px;
-    height:36px
+    width:21px;
+    height:16px
   }
   .style-name {
     font-size:12px;

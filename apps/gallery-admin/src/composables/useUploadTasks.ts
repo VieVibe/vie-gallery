@@ -16,7 +16,7 @@ export type TaskFilter = 'ALL' | 'ACTIVE' | 'FAILED' | 'COMPLETED'
 const ACTIVE_STATUSES: UploadTaskStatus[] = ['QUEUED', 'PROCESSING', 'CANCEL_REQUESTED']
 
 export interface UseUploadTasksOptions {
-  onIdle?: () => void | Promise<void>
+  onPhotoStatusChange?: () => void | Promise<void>
 }
 
 function emptySummary(): UploadTaskSummary {
@@ -84,10 +84,11 @@ export function useUploadTasks(
 
   let requestVersion = 0
   let pollTimer: number | undefined
-  let pollInFlight = false
+  let pendingLoad: { galleryId: string; promise: Promise<void> } | undefined
   let hadActiveTasks = false
 
   const activeTasks = computed(() => tasks.value.filter(task => ACTIVE_STATUSES.includes(task.status)))
+  const activeCount = computed(() => summary.value.queued + summary.value.processing + summary.value.cancelRequested)
   const filteredTasks = computed(() => tasks.value.filter(task => {
     if (filter.value === 'ACTIVE') return ACTIVE_STATUSES.includes(task.status)
     if (filter.value === 'FAILED') return task.status === 'FAILED'
@@ -103,19 +104,19 @@ export function useUploadTasks(
 
   function schedulePoll(delay = document.hidden ? 8000 : 2500) {
     clearPoll()
-    if (!isEnabled.value || !activeTasks.value.length) return
+    if (!isEnabled.value || !activeCount.value) return
     isPolling.value = true
-    pollTimer = window.setTimeout(async () => {
+    pollTimer = window.setTimeout(() => {
       pollTimer = undefined
-      await load(true)
-      schedulePoll()
+      void load(true)
     }, delay)
   }
 
-  async function load(silent = false): Promise<void> {
+  async function load(silent = false, afterCurrent = false): Promise<void> {
     const galleryIdValue = id.value
-    const version = ++requestVersion
     if (!isEnabled.value || !galleryIdValue) {
+      requestVersion++
+      pendingLoad = undefined
       clearPoll()
       tasks.value = []
       localPlaceholders.value = []
@@ -126,8 +127,18 @@ export function useUploadTasks(
       hadActiveTasks = false
       return
     }
-    if (pollInFlight) return
-    pollInFlight = true
+    if (pendingLoad?.galleryId === galleryIdValue) {
+      await pendingLoad.promise
+      if (afterCurrent && galleryIdValue === id.value && isEnabled.value) await load(silent)
+      return
+    }
+    const version = ++requestVersion
+    const promise = loadTasks(galleryIdValue, version, silent)
+    pendingLoad = { galleryId: galleryIdValue, promise }
+    await promise
+  }
+
+  async function loadTasks(galleryIdValue: string, version: number, silent: boolean) {
     if (silent) refreshing.value = true
     else loading.value = true
     error.value = null
@@ -156,6 +167,7 @@ export function useUploadTasks(
 
       const remoteSummary = Array.isArray(data) ? undefined : data.summary
       const pendingLocalsCount = localPlaceholders.value.length
+      const previousSummary = summary.value
       summary.value = {
         queued: Number(remoteSummary?.queued ?? remoteTasks.filter(task => task.status === 'QUEUED').length) + pendingLocalsCount,
         processing: Number(remoteSummary?.processing ?? remoteTasks.filter(task => task.status === 'PROCESSING').length),
@@ -165,22 +177,26 @@ export function useUploadTasks(
         cancelled: Number(remoteSummary?.cancelled ?? remoteTasks.filter(task => task.status === 'CANCELLED').length)
       }
 
-      const currentActiveCount = activeTasks.value.length
-      if (hadActiveTasks && currentActiveCount === 0) {
-        hadActiveTasks = false
+      const currentActiveCount = activeCount.value
+      const photosChanged = hadActiveTasks && (
+        currentActiveCount === 0 ||
+        summary.value.succeeded !== previousSummary.succeeded ||
+        summary.value.failed !== previousSummary.failed ||
+        summary.value.cancelled !== previousSummary.cancelled
+      )
+      hadActiveTasks = currentActiveCount > 0
+      if (photosChanged) {
         try {
-          await options.onIdle?.()
+          await options.onPhotoStatusChange?.()
         } catch {
-          // Ignore error from onIdle callback
+          // A photo refresh failure must not interrupt subsequent task polling.
         }
-      } else if (currentActiveCount > 0) {
-        hadActiveTasks = true
       }
     } catch (cause) {
       if (version === requestVersion) error.value = cause instanceof Error ? cause : new Error('任务列表加载失败，请稍后重试。')
     } finally {
-      pollInFlight = false
       if (version === requestVersion) {
+        pendingLoad = undefined
         loading.value = false
         refreshing.value = false
         schedulePoll()
@@ -249,7 +265,7 @@ export function useUploadTasks(
         queued: Math.max(0, summary.value.queued - removed)
       }
     }
-    if (!activeTasks.value.length) {
+    if (!activeCount.value) {
       hadActiveTasks = false
     }
   }

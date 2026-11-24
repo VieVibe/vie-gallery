@@ -24,6 +24,9 @@ export type PhotoEffectStyle = typeof PHOTO_EFFECTS[number]['id']
 export interface PhotoEffectConfig { style: PhotoEffectStyle; intensity: number; speed: number }
 
 export const PHOTO_ARRANGEMENTS = [
+  { id: 'tide', label: '潮汐', mode: 'grid', caption: '照片铺成弧面，波纹穿过整组作品' },
+  { id: 'fold', label: '折廊', mode: 'helix', caption: '沿曲线穿行于两侧的照片展面' },
+  { id: 'space', label: '空间', mode: 'helix', caption: '多层照片围成光圈，沿弧面错开开合' },
   { id: 'book', label: '巨幅翻页', mode: 'helix', caption: '像翻阅画册一样，让故事一页页展开' },
   { id: 'tunnel', label: '时空长廊', mode: 'helix', caption: '沿着纵深光廊，走进下一段回忆' },
   { id: 'ribbon', label: '扭转丝带', mode: 'helix', caption: '照片沿流动的曲线，轻盈舒展' },
@@ -38,6 +41,7 @@ export const PHOTO_ARRANGEMENTS = [
 export type PhotoArrangement = typeof PHOTO_ARRANGEMENTS[number]['id']
 
 export const PRESET_PHOTO_EFFECTS: Record<string, PhotoEffectConfig> = {
+  'film-exhibition': { style: 'none', intensity: 0, speed: 0 },
   'jade-flow': { style: 'silk', intensity: .72, speed: .6 },
   aurora: { style: 'hologram', intensity: .72, speed: .65 },
   'amber-hour': { style: 'film', intensity: .78, speed: .45 },
@@ -56,6 +60,7 @@ export const PRESET_PHOTO_EFFECTS: Record<string, PhotoEffectConfig> = {
   'film-gallery': { style: 'contact', intensity: .88, speed: .3 }
 }
 export const PRESET_PHOTO_ARRANGEMENTS: Record<string, PhotoArrangement> = {
+  'film-exhibition': 'filmstrip',
   'jade-flow': 'ribbon', aurora: 'orbit', 'amber-hour': 'filmstrip', 'rose-dream': 'fan',
   'deep-ocean': 'wave', moonlight: 'arc', lavender: 'cascade', 'silver-mist': 'stack'
 }

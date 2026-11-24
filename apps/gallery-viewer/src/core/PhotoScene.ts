@@ -13,7 +13,29 @@ export class PhotoScene {
   private matrix = new THREE.Matrix4()
   private position = new THREE.Vector3()
   private disposed = false
+  private flatCards = false
   constructor(private scene: THREE.Scene, private pool: TexturePool, private textureReady: (mesh: PhotoMesh) => void = () => {}) {}
+
+  setFlatCards(flat: boolean): void {
+    if (this.flatCards === flat) return
+    this.flatCards = flat
+    for (const mesh of this.meshes.values()) {
+      const previous = mesh.geometry as THREE.PlaneGeometry
+      mesh.geometry = this.createGeometry(previous.parameters.width, previous.parameters.height)
+      const back = mesh.getObjectByName('photo-back') as THREE.Mesh
+      back.geometry = mesh.geometry
+      previous.dispose()
+    }
+  }
+
+  private createGeometry(width: number, height: number): THREE.PlaneGeometry {
+    const sections = this.flatCards ? 1 : 24
+    const geometry = new THREE.PlaneGeometry(width, height, sections, sections)
+    geometry.computeBoundingSphere()
+    if (!this.flatCards) geometry.boundingSphere!.radius += 5
+    return geometry
+  }
+
   sync(photos: PublicPhoto[]): { all: PhotoMesh[]; added: PhotoMesh[]; removed: PhotoMesh[] } {
     const added: PhotoMesh[] = [], removed: PhotoMesh[] = []
     const keep = new Set(photos)
@@ -31,12 +53,9 @@ export class PhotoScene {
         const ratio = photo.width > 0 && photo.height > 0 ? photo.width / photo.height : 4 / 3
         const width = Math.min(80, 120 * ratio), height = width / ratio
         const material = new THREE.MeshStandardMaterial({ color: '#b8bcc4', side: THREE.FrontSide, metalness: 0, roughness: .7 })
-        mesh = Object.assign(new THREE.Mesh(new THREE.PlaneGeometry(width, height, 24, 24), material), {
+        mesh = Object.assign(new THREE.Mesh(this.createGeometry(width, height), material), {
           userData: { index, url: '', thumbnailUrl: '', textureState: 'placeholder' as const }
         })
-        mesh.geometry.computeBoundingSphere()
-        // Surface shaders may bend a photograph a few units beyond the flat plane.
-        mesh.geometry.boundingSphere!.radius += 5
         // Two printed faces share one paper-thin surface, without a dark mount.
         const back = new THREE.Mesh(mesh.geometry, material)
         back.name = 'photo-back'
@@ -133,7 +152,7 @@ export class PhotoScene {
       const highOwner = this.highTextureOwners.get(photo)
       this.pool.touch(photo, highOwner && this.highTextureReady.has(photo) ? Infinity : priority)
       if (highOwner) this.pool.touch(highOwner, priority + 1)
-      else if (visible && mesh.userData.textureState === 'ready' && !this.highTextureReady.has(photo)) this.loadHighTexture(photo, mesh, priority)
+      else if (!this.flatCards && visible && mesh.userData.textureState === 'ready' && !this.highTextureReady.has(photo)) this.loadHighTexture(photo, mesh, priority)
     }
   }
   retry(photo: PublicPhoto): void {

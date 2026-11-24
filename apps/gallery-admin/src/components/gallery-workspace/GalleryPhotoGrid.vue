@@ -217,7 +217,6 @@ defineExpose({ clearSelection })
         </template>
         <template v-else>
           <h3>相册内暂无照片</h3>
-          <p>在上方拖拽或选择照片上传，开启沉浸式 3D 展厅创作。</p>
         </template>
       </div>
     </div>

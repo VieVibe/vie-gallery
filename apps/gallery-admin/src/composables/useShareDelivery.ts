@@ -68,6 +68,7 @@ export function useShareDelivery(
   } | null>(null)
   const shortUrls = ref<Record<string, string>>({})
   const error = ref<string | null>(null)
+  let listRequest = 0
 
   function viewerBaseUrl(slug: string) {
     return `${viewerOrigin()}/g/${encodeURIComponent(slug)}`
@@ -90,16 +91,23 @@ export function useShareDelivery(
   async function loadShareLinks() {
     const galleryIdValue = id.value
     if (!galleryIdValue) return
+    const request = ++listRequest
     loading.value = true
     error.value = null
     try {
       const response = await apiFetch(`/api/galleries/${galleryIdValue}/share-links`)
       if (!response.ok) throw new Error('分享链接列表加载失败。')
-      shareLinks.value = await response.json() as ShareLink[]
+      const links = await response.json() as ShareLink[]
+      if (request !== listRequest || galleryIdValue !== id.value) return
+      shareLinks.value = links
+      shortUrls.value = Object.fromEntries(links.flatMap(link => {
+        const url = link.shortUrl || shortUrls.value[link.id]
+        return link.status === 'ACTIVE' && url ? [[link.id, url]] : []
+      }))
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : '分享链接加载失败。'
+      if (request === listRequest) error.value = cause instanceof Error ? cause.message : '分享链接加载失败。'
     } finally {
-      loading.value = false
+      if (request === listRequest) loading.value = false
     }
   }
 
@@ -169,6 +177,9 @@ export function useShareDelivery(
     try {
       const response = await apiFetch(`/api/share-links/${shareLinkId}`, { method: 'DELETE' })
       if (!response.ok) throw new Error('撤销分享链接失败。')
+      if (latestCreatedLink.value?.id === shareLinkId) latestCreatedLink.value = null
+      shareLinks.value = shareLinks.value.map(link => link.id === shareLinkId ? { ...link, status: 'REVOKED', shortUrl: null } : link)
+      delete shortUrls.value[shareLinkId]
       await loadShareLinks()
     } finally {
       revoking.value = false

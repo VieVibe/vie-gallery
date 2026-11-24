@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import { galleryMediaUrl } from '@vie/gallery-contracts'
 import type { Gallery } from '@vie/gallery-contracts'
 import { apiFetch } from '../api'
 import { useToast } from '../composables/useToast'
@@ -10,16 +11,6 @@ import BrandMark from '../components/BrandMark.vue'
 import WorkspaceSwitcher from '../components/WorkspaceSwitcher.vue'
 import { openCreatorPreview } from '../lib/preview'
 import { useModalFocus } from '../composables/useModalFocus'
-
-const FALLBACK_COVERS = [
-  '/covers/forest.png',
-  '/covers/lake.png',
-  '/covers/coast.png',
-  '/covers/courtyard.png',
-  '/covers/stream.png',
-  '/covers/gallery.png',
-  '/covers/bamboo.png'
-].map(path => `${import.meta.env.BASE_URL}${path.slice(1)}`)
 
 type StatusFilter = 'ALL' | 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 type SortOption = 'updated' | 'created' | 'name'
@@ -68,26 +59,31 @@ const sortBy = ref<SortOption>('updated')
 const viewMode = ref<'grid' | 'list'>('grid')
 const menuId = ref<string | null>(null)
 const userMenuOpen = ref(false)
+const failedCoverUrls = ref(new Set<string>())
 
 const showCreateModal = ref(false)
-const createForm = ref({ name: '', slug: '', visibility: 'PUBLIC' })
+const createForm = ref(newAlbum())
 const createPassword = ref('')
 const creating = ref(false)
 const createError = ref('')
-const slugSeed = ref(makeSlugSeed())
+const showCreateOptions = ref(false)
+const albumNameInput = ref<HTMLInputElement | null>(null)
 const { root: createModalRoot } = useModalFocus(showCreateModal, {
   onEscape: () => { if (!creating.value) showCreateModal.value = false },
-  disabled: creating
+  disabled: creating,
+  initialFocus: () => albumNameInput.value
 })
 
-function makeSlugSeed() {
-  return `space-${Date.now().toString(36)}`
+function newAlbum() {
+  const suffix = crypto.randomUUID?.().replaceAll('-', '').slice(0, 16) ?? Date.now().toString(36)
+  return { name: '', slug: `album-${suffix}`, visibility: 'PRIVATE' as Gallery['visibility'] }
 }
 
 function openCreateModal() {
-  slugSeed.value = makeSlugSeed()
+  createForm.value = newAlbum()
   createError.value = ''
   createPassword.value = ''
+  showCreateOptions.value = false
   showCreateModal.value = true
 }
 
@@ -122,13 +118,6 @@ const filteredGalleries = computed(() => {
     return tb - ta
   })
 })
-
-function coverFor(gallery: Gallery) {
-  if (gallery.coverThumbnailUrl) return gallery.coverThumbnailUrl
-  let hash = 0
-  for (const ch of gallery.id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
-  return FALLBACK_COVERS[hash % FALLBACK_COVERS.length]
-}
 
 function formatTime(value?: string | null) {
   if (!value) return '刚刚'
@@ -245,7 +234,7 @@ async function loadGalleries() {
   }
 }
 
-watch(currentUser, (user, previous) => {
+watch(currentUser, async (user, previous) => {
   galleries.value = []
   if (user?.tenant?.id !== previous?.tenant?.id) {
     searchQuery.value = ''
@@ -305,45 +294,19 @@ async function handleAuthSubmit() {
   }
 }
 
-function handleNameInput() {
-  const previous = slugify(createForm.value.name.slice(0, -1))
-  if (!createForm.value.slug || createForm.value.slug === previous) {
-    createForm.value.slug = slugify(createForm.value.name)
-  }
-}
-
-function slugify(text: string) {
-  const ascii = text
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^\w-]+/g, '-')
-    .replace(/--+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48)
-  return ascii || slugSeed.value
-}
-
 async function handleCreateGallery() {
   if (creating.value) return
   if (!canCreateGallery.value) {
-    toast.error('当前角色没有创建空间的权限。')
+    toast.error('当前角色没有创建相册的权限。')
     return
   }
   if (!createForm.value.name.trim()) {
-    createError.value = '请填写空间名称。'
+    createError.value = '请填写相册名称。'
     return
   }
-  if (!createForm.value.slug.trim()) {
-    createForm.value.slug = slugify(createForm.value.name)
-  }
-  if (!createForm.value.slug.trim()) {
-    createError.value = '请填写访问地址，可用字母、数字和连字符。'
-    return
-  }
-  const draft = { ...createForm.value, password: createPassword.value }
+  const draft = { ...createForm.value, slug: createForm.value.slug.trim() || newAlbum().slug, password: createPassword.value }
   if (draft.visibility === 'PASSWORD' && draft.password.length < 6) {
-    createError.value = '请设置至少 6 个字符的展厅访问密码。'
+    createError.value = '请设置至少 6 个字符的相册访问密码。'
     return
   }
   creating.value = true
@@ -360,8 +323,8 @@ async function handleCreateGallery() {
     })
     if (!response.ok) {
       const body = await response.json().catch(() => ({})) as { message?: string }
-      createError.value = body.message || '创建空间失败，请稍后重试。'
-      toast.error(createError.value)
+      createError.value = body.message || '创建相册失败，请稍后重试。'
+      if (response.status === 409) showCreateOptions.value = true
       return
     }
     const newGallery = await response.json() as Gallery
@@ -379,14 +342,12 @@ async function handleCreateGallery() {
       }
     }
     showCreateModal.value = false
-    createForm.value = { name: '', slug: '', visibility: 'PUBLIC' }
     createPassword.value = ''
-    if (passwordSaved) toast.success(`空间“${newGallery.name}”创建成功！`)
-    else toast.error('空间已创建，访问密码未保存。请在发布设置中重新设置密码后发布。')
+    if (passwordSaved) toast.success(`已创建「${newGallery.name}」`)
+    else toast.error('相册已创建，访问密码未保存。请在访问设置中重新设置密码。')
     navigateToWorkspace(newGallery.id)
   } catch (error) {
     createError.value = error instanceof Error ? error.message : '网络请求失败，请稍后重试。'
-    toast.error(createError.value)
   } finally {
     creating.value = false
   }
@@ -566,7 +527,7 @@ async function handleDeleteGallery() {
       <nav class="space-tabs" aria-label="主导航">
         <RouterLink to="/" class="space-tab is-active">
           <Icon name="home" :size="16" />
-          <span>我的空间</span>
+          <span>我的相册</span>
         </RouterLink>
         <RouterLink v-if="isOwner" to="/members" class="space-tab">
           <Icon name="users" :size="16" />
@@ -588,13 +549,7 @@ async function handleDeleteGallery() {
 
     <div class="space-body">
       <div class="space-heading">
-        <h1>我的空间</h1>
-        <p>从一组照片，到一场属于你的展览。</p>
-      </div>
-
-      <WorkspaceSwitcher />
-
-      <div class="space-toolbar">
+        <h1>我的相册</h1>
         <button
           v-if="canCreateGallery"
           id="btn-open-create-modal"
@@ -603,97 +558,100 @@ async function handleDeleteGallery() {
           @click="openCreateModal"
         >
           <Icon name="plus" :size="16" />
-          <span>新建空间</span>
+          <span>新建相册</span>
         </button>
+      </div>
 
-        <!-- 状态筛选 Chips -->
-        <div class="status-filter-group">
-          <button
-            class="status-tab-btn"
-            :class="{ active: statusFilter === 'ALL' }"
-            :aria-pressed="statusFilter === 'ALL'"
-            type="button"
-            @click="statusFilter = 'ALL'"
-          >
-            全部 ({{ statusCounts.all }})
-          </button>
-          <button
-            class="status-tab-btn"
-            :class="{ active: statusFilter === 'DRAFT' }"
-            :aria-pressed="statusFilter === 'DRAFT'"
-            type="button"
-            @click="statusFilter = 'DRAFT'"
-          >
-            草稿 ({{ statusCounts.draft }})
-          </button>
-          <button
-            class="status-tab-btn"
-            :class="{ active: statusFilter === 'PUBLISHED' }"
-            :aria-pressed="statusFilter === 'PUBLISHED'"
-            type="button"
-            @click="statusFilter = 'PUBLISHED'"
-          >
-            已发布 ({{ statusCounts.published }})
-          </button>
-          <button
-            v-if="statusCounts.archived > 0"
-            class="status-tab-btn"
-            :class="{ active: statusFilter === 'ARCHIVED' }"
-            :aria-pressed="statusFilter === 'ARCHIVED'"
-            type="button"
-            @click="statusFilter = 'ARCHIVED'"
-          >
-            已归档 ({{ statusCounts.archived }})
-          </button>
+      <WorkspaceSwitcher />
+
+      <div v-if="galleries.length" class="space-toolbar">
+        <div class="search-box">
+          <Icon name="search" :size="16" class="search-icon" />
+          <input v-model="searchQuery" type="search" class="search-input" placeholder="搜索相册"
+            aria-label="搜索相册名称或地址" @keydown.esc="searchQuery = ''" />
         </div>
+        <details class="collection-options">
+          <summary>筛选与排序 <Icon name="chevron-down" :size="14" /></summary>
+          <div class="collection-options-body">
+            <!-- 状态筛选 Chips -->
+            <div class="status-filter-group">
+              <button
+                class="status-tab-btn"
+                :class="{ active: statusFilter === 'ALL' }"
+                :aria-pressed="statusFilter === 'ALL'"
+                type="button"
+                @click="statusFilter = 'ALL'"
+              >
+                全部 ({{ statusCounts.all }})
+              </button>
+              <button
+                class="status-tab-btn"
+                :class="{ active: statusFilter === 'DRAFT' }"
+                :aria-pressed="statusFilter === 'DRAFT'"
+                type="button"
+                @click="statusFilter = 'DRAFT'"
+              >
+                草稿 ({{ statusCounts.draft }})
+              </button>
+              <button
+                class="status-tab-btn"
+                :class="{ active: statusFilter === 'PUBLISHED' }"
+                :aria-pressed="statusFilter === 'PUBLISHED'"
+                type="button"
+                @click="statusFilter = 'PUBLISHED'"
+              >
+                已发布 ({{ statusCounts.published }})
+              </button>
+              <button
+                v-if="statusCounts.archived > 0"
+                class="status-tab-btn"
+                :class="{ active: statusFilter === 'ARCHIVED' }"
+                :aria-pressed="statusFilter === 'ARCHIVED'"
+                type="button"
+                @click="statusFilter = 'ARCHIVED'"
+              >
+                已归档 ({{ statusCounts.archived }})
+              </button>
+            </div>
 
-        <div class="space-toolbar-right">
-          <!-- 排序方式 -->
-          <div class="sort-selector">
-            <select v-model="sortBy" class="sort-select" aria-label="排序方式">
-              <option value="updated">最近更新</option>
-              <option value="created">最近创建</option>
-              <option value="name">名称排序</option>
-            </select>
-          </div>
+            <div class="space-toolbar-right">
+              <!-- 排序方式 -->
+              <div class="sort-selector">
+                <select v-model="sortBy" class="sort-select" aria-label="排序方式">
+                  <option value="updated">最近更新</option>
+                  <option value="created">最近创建</option>
+                  <option value="name">名称排序</option>
+                </select>
+              </div>
 
-          <div class="view-toggle" role="group" aria-label="展示方式">
-            <button
-              class="view-btn"
-              :class="{ active: viewMode === 'grid' }"
-              type="button"
-              title="网格视图"
-              aria-label="网格视图"
-              :aria-pressed="viewMode === 'grid'"
-              @click="viewMode = 'grid'"
-            >
-              <Icon name="grid" :size="15" />
-            </button>
-            <button
-              class="view-btn"
-              :class="{ active: viewMode === 'list' }"
-              type="button"
-              title="列表视图"
-              aria-label="列表视图"
-              :aria-pressed="viewMode === 'list'"
-              @click="viewMode = 'list'"
-            >
-              <Icon name="list" :size="15" />
-            </button>
-          </div>
+              <div class="view-toggle" role="group" aria-label="展示方式">
+                <button
+                  class="view-btn"
+                  :class="{ active: viewMode === 'grid' }"
+                  type="button"
+                  title="网格视图"
+                  aria-label="网格视图"
+                  :aria-pressed="viewMode === 'grid'"
+                  @click="viewMode = 'grid'"
+                >
+                  <Icon name="grid" :size="15" />
+                </button>
+                <button
+                  class="view-btn"
+                  :class="{ active: viewMode === 'list' }"
+                  type="button"
+                  title="列表视图"
+                  aria-label="列表视图"
+                  :aria-pressed="viewMode === 'list'"
+                  @click="viewMode = 'list'"
+                >
+                  <Icon name="list" :size="15" />
+                </button>
+              </div>
 
-          <div class="search-box">
-            <Icon name="search" :size="16" class="search-icon" />
-            <input
-              v-model="searchQuery"
-              type="search"
-              class="search-input"
-              placeholder="搜索空间名称或地址"
-              aria-label="搜索空间名称或地址"
-              @keydown.esc="searchQuery = ''"
-            />
+            </div>
           </div>
-        </div>
+        </details>
       </div>
 
       <div v-if="loadError" class="space-error" role="alert">
@@ -707,13 +665,12 @@ async function handleDeleteGallery() {
           v-for="gallery in filteredGalleries"
           :key="gallery.id"
           class="space-card"
-          tabindex="0"
-          @click="navigateToWorkspace(gallery.id)"
-          @keydown.enter.self="navigateToWorkspace(gallery.id)"
-          @keydown.space.self.prevent="navigateToWorkspace(gallery.id)"
         >
           <div class="card-cover">
-            <img :src="coverFor(gallery)" class="cover-image" :alt="gallery.name" loading="lazy" />
+            <Icon name="photo" :size="36" class="cover-placeholder" aria-hidden="true" />
+            <img v-if="gallery.coverThumbnailUrl && !failedCoverUrls.has(gallery.coverThumbnailUrl)"
+              :key="gallery.coverThumbnailUrl" :src="galleryMediaUrl(gallery.coverThumbnailUrl)" class="cover-image" alt="" loading="lazy"
+              @error="failedCoverUrls.add(gallery.coverThumbnailUrl!)" />
             <span class="vis-tag" :class="gallery.visibility === 'PUBLIC' ? 'is-public' : gallery.visibility === 'PASSWORD' ? 'is-password' : 'is-private'">
               {{ visibilityLabel(gallery) }}
             </span>
@@ -723,7 +680,7 @@ async function handleDeleteGallery() {
           </div>
           <div class="card-body">
             <div class="card-title-row">
-              <h2>{{ gallery.name }}</h2>
+              <h2><RouterLink class="album-card-link" :to="{ name: 'gallery-workspace', params: { id: gallery.id } }">{{ gallery.name }}</RouterLink></h2>
             </div>
 
             <!-- 卡片 Meta 数据摘要 -->
@@ -738,7 +695,6 @@ async function handleDeleteGallery() {
             </div>
 
             <p class="card-date">更新于 {{ formatTime(gallery.updatedAt || gallery.createdAt) }}</p>
-            <button class="card-enter" type="button" @click.stop="navigateToWorkspace(gallery.id)">整理照片 <Icon name="arrow-right" :size="16" /></button>
 
             <div class="card-foot">
               <span class="status-meta">
@@ -780,7 +736,10 @@ async function handleDeleteGallery() {
           type="button"
           @click="navigateToWorkspace(gallery.id)"
         >
-          <img :src="coverFor(gallery)" class="list-thumb" :alt="gallery.name" />
+          <img v-if="gallery.coverThumbnailUrl && !failedCoverUrls.has(gallery.coverThumbnailUrl)"
+            :key="gallery.coverThumbnailUrl" :src="galleryMediaUrl(gallery.coverThumbnailUrl)" class="list-thumb" alt="" loading="lazy"
+            @error="failedCoverUrls.add(gallery.coverThumbnailUrl!)" />
+          <span v-else class="list-thumb cover-placeholder" aria-hidden="true"><Icon name="photo" :size="22" /></span>
           <div class="list-copy">
             <div class="list-head-row">
               <strong>{{ gallery.name }}</strong>
@@ -804,23 +763,19 @@ async function handleDeleteGallery() {
       </div>
 
       <div v-else-if="!loading && !loadError && galleries.length && !filteredGalleries.length" class="space-empty">
-        <h3>未找到匹配的空间</h3>
-        <p>没有找到与当前筛选或 “{{ searchQuery }}” 相关的空间。</p>
+        <h3>没有匹配的相册</h3>
         <button class="btn btn-secondary" type="button" @click="searchQuery = ''; statusFilter = 'ALL'">重置筛选</button>
       </div>
 
       <div v-else-if="loading" class="space-loading" role="status" aria-live="polite">
-        <p>正在加载空间…</p>
+        <p>正在加载相册…</p>
         <div class="space-grid" aria-hidden="true"><div v-for="n in 3" :key="n" class="space-skeleton"><div></div><span></span><span></span></div></div>
       </div>
 
       <div v-else-if="!galleries.length && !loadError" class="space-empty">
-        <h2>还没有画廊空间</h2>
-        <p>{{ canCreateGallery ? '创建第一个 3D 展厅，上传照片后即可配置氛围并分享给访客。' : '当前工作区暂无空间，可以切换到其他工作区，或联系所有者创建空间。' }}</p>
-        <button v-if="canCreateGallery" class="space-create-btn" type="button" @click="openCreateModal">
-          <Icon name="plus" :size="16" />
-          <span>创建第一组照片</span>
-        </button>
+        <Icon name="photo" :size="36" aria-hidden="true" />
+        <h2>还没有相册</h2>
+        <p>{{ canCreateGallery ? '新建相册，添加想要分享的照片。' : '切换到其他工作区，或联系所有者创建相册。' }}</p>
       </div>
     </div>
 
@@ -840,8 +795,7 @@ async function handleDeleteGallery() {
                 <Icon name="plus" :size="20" />
               </div>
               <div>
-                <h2 id="create-title">新建空间</h2>
-                <p>创建一个新的 3D 画廊空间</p>
+                <h2 id="create-title">新建相册</h2>
               </div>
             </div>
             <button class="modal-close" type="button" aria-label="关闭" :disabled="creating" @click="showCreateModal = false">
@@ -856,52 +810,58 @@ async function handleDeleteGallery() {
 
           <form @submit.prevent="handleCreateGallery">
             <div class="form-group">
-              <label class="form-label" for="input-gallery-name">空间名称</label>
+              <label class="form-label" for="input-gallery-name">相册名称</label>
               <input
                 id="input-gallery-name"
+                ref="albumNameInput"
                 :disabled="creating"
                 v-model="createForm.name"
                 placeholder="例如：晨雾森林"
                 class="form-input"
                 maxlength="160"
                 required
-                @input="handleNameInput"
               />
             </div>
-            <div class="form-group">
-              <label class="form-label" for="input-gallery-slug">访问地址</label>
-              <input
-                id="input-gallery-slug"
-                :disabled="creating"
-                v-model="createForm.slug"
-                placeholder="例如：morning-forest"
-                class="form-input"
-                maxlength="80"
-                pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                title="使用小写字母、数字，多个单词之间使用单个连字符"
-                aria-describedby="gallery-slug-hint"
-                required
-              />
-              <p id="gallery-slug-hint" class="form-hint">用于访客链接，可用小写字母、数字和连字符。中文名称会自动生成可用地址。</p>
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="select-gallery-visibility">访问权限</label>
-              <select id="select-gallery-visibility" v-model="createForm.visibility" class="select-input" :disabled="creating">
-                <option value="PUBLIC">公开</option>
-                <option value="PRIVATE">私密</option>
-                <option value="PASSWORD">密码保护</option>
-              </select>
-            </div>
-            <div v-if="createForm.visibility === 'PASSWORD'" class="form-group">
-              <label class="form-label" for="create-password">展厅访问密码</label>
-              <input id="create-password" v-model="createPassword" class="form-input" type="password" autocomplete="new-password" minlength="6" maxlength="128" placeholder="至少 6 个字符，与登录密码无关" :disabled="creating" required />
-            </div>
-            <p class="form-hint">创建后先保存为草稿，完成发布后访客才能访问。</p>
+            <details class="create-options" :open="showCreateOptions"
+              @toggle="showCreateOptions = ($event.currentTarget as HTMLDetailsElement).open">
+              <summary>访问选项 <Icon name="chevron-down" :size="14" /></summary>
+              <div class="create-options-body">
+                  <div class="form-group">
+                    <label class="form-label" for="input-gallery-slug">访问地址</label>
+                    <input
+                      id="input-gallery-slug"
+                      :disabled="creating"
+                      v-model="createForm.slug"
+                      placeholder="例如：morning-forest"
+                      class="form-input"
+                      maxlength="80"
+                      pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                      title="使用小写字母、数字，多个单词之间使用单个连字符"
+                      aria-describedby="gallery-slug-hint"
+                      @invalid="showCreateOptions = true"
+                    />
+                    <p id="gallery-slug-hint" class="form-hint">地址已自动生成，可用小写字母、数字和连字符修改。</p>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label" for="select-gallery-visibility">访问权限</label>
+                    <select id="select-gallery-visibility" v-model="createForm.visibility" class="select-input" :disabled="creating">
+                      <option value="PUBLIC">公开</option>
+                      <option value="PRIVATE">专属链接</option>
+                      <option value="PASSWORD">密码保护</option>
+                    </select>
+                  </div>
+                  <div v-if="createForm.visibility === 'PASSWORD'" class="form-group">
+                    <label class="form-label" for="create-password">相册访问密码</label>
+                    <input id="create-password" v-model="createPassword" class="form-input" type="password" autocomplete="new-password" minlength="6" maxlength="128" placeholder="至少 6 个字符" :disabled="creating" required @invalid="showCreateOptions = true" />
+                  </div>
+              </div>
+            </details>
+            <p v-if="!showCreateOptions && createForm.visibility === 'PRIVATE'" class="form-hint">发布后，收到专属链接的人可以查看。</p>
             <div class="modal-actions">
               <button type="button" class="btn btn-secondary" :disabled="creating" @click="showCreateModal = false">取消</button>
               <button id="btn-create-submit" type="submit" class="btn btn-primary" :disabled="creating">
                 <Icon v-if="creating" name="refresh" :size="16" class="spin" />
-                <span>{{ creating ? '创建中…' : '立即创建' }}</span>
+                <span>{{ creating ? '创建中…' : '创建相册' }}</span>
               </button>
             </div>
           </form>

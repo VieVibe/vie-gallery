@@ -4,7 +4,7 @@ test.describe('Creator Admin Smoke Test', () => {
   test('guest shell renders login or overview heading', async ({ page }) => {
     await page.goto('/')
     const loginHeader = page.locator('.auth-header')
-    const overviewHeading = page.getByRole('heading', { name: '我的空间' })
+    const overviewHeading = page.getByRole('heading', { name: '我的相册' })
     await expect(loginHeader.or(overviewHeading)).toBeVisible()
   })
 
@@ -83,17 +83,17 @@ test.describe('Creator Admin Smoke Test', () => {
     })
 
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: '我的空间' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '我的相册' })).toBeVisible()
     const createTrigger = page.locator('#btn-open-create-modal')
     await expect(createTrigger).toBeVisible()
 
     await createTrigger.click()
-    const createDialog = page.getByRole('dialog', { name: '新建空间' })
+    const createDialog = page.getByRole('dialog', { name: '新建相册' })
     await expect(createDialog).toBeVisible()
-    await expect(createDialog).toContainText('创建一个新的 3D 画廊空间')
-    await expect(createDialog.locator(':focus')).toBeVisible()
+    await expect(createDialog.getByLabel('相册名称')).toBeFocused()
 
     await page.locator('#input-gallery-name').fill('回归测试空间')
+    await page.getByText('访问选项', { exact: true }).click()
     await page.locator('#select-gallery-visibility').selectOption('PUBLIC')
     await expect(createDialog).toBeVisible()
 
@@ -110,6 +110,7 @@ test.describe('Creator Admin Smoke Test', () => {
     await createTrigger.click()
     await expect(createDialog).toBeVisible()
     await page.locator('#input-gallery-name').fill('回归测试空间')
+    await page.getByText('访问选项', { exact: true }).click()
     await page.locator('#input-gallery-slug').fill('regression-gallery')
     const createRequest = page.waitForRequest(request => request.url().endsWith('/api/galleries') && request.method() === 'POST')
     await page.locator('#btn-create-submit').click()

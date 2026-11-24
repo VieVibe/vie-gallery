@@ -15,6 +15,10 @@ async function fixedBackgroundPage(page: Page, background = { mode: 'image', col
   })
   await page.goto('/g/effects-fixture')
   await expect.poll(() => page.evaluate(() => !!window.__VIE_VIEWER_DIAGNOSTICS__)).toBe(true)
+  await page.getByRole('button', { name: '查看当前作品', exact: true }).waitFor()
+  await page.getByRole('button', { name: '更多观看方式' }).click()
+  await page.getByRole('button', { name: '自由漫游', exact: true }).click()
+  await expect(page.getByRole('button', { name: '查看当前作品', exact: true })).toBeHidden()
   await page.evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__!.freezeTime(3))
   return errors
 }

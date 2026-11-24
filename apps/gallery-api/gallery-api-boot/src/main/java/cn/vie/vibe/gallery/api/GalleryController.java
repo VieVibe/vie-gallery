@@ -77,24 +77,8 @@ public class GalleryController {
     }
 
     private GalleryResponse toResponse(Gallery gallery, UUID tenant) {
-        String coverUrl = null;
-        if (gallery.coverPhotoId() != null && photos != null && objects != null && storage != null) {
-            String rawUrl = photos.findById(tenant, gallery.coverPhotoId())
-                    .filter(p -> p.status() == PhotoStatus.READY)
-                    .flatMap(p -> objects.findById(tenant, p.storageObjectId()))
-                    .filter(o -> o.status() == StorageObjectStatus.READY)
-                    .map(o -> storage.createReadUrl(o.thumbnailKey() != null ? o.thumbnailKey() : o.objectKey(), ObjectStoragePort.DEFAULT_READ_URL_TTL).toString())
-                    .orElse(null);
-            
-            // 为封面照片URL生成签名
-            if (rawUrl != null && signedUrlService != null) {
-                coverUrl = signedUrlService.signPhotoUrl(rawUrl, tenant.toString());
-            } else {
-                coverUrl = rawUrl;
-            }
-        }
-
         int photoCount = photos != null ? photos.countPublicReadyByGalleryId(tenant, gallery.id()) : 0;
+        String coverUrl = findCoverUrl(gallery, tenant, photoCount);
         TaskSummary taskSummary = tasks != null ? tasks.summaryByGallery(tenant, gallery.id()) : TaskSummary.empty();
         long failedPhotoCount = photos != null ? photos.countFailedByGalleryId(tenant, gallery.id()) : 0;
         long processingCount = taskSummary.queued() + taskSummary.processing() + taskSummary.cancelRequested();
@@ -109,6 +93,31 @@ public class GalleryController {
         }
 
         return GalleryResponse.from(gallery, coverUrl, photoCount, failedPhotoCount, processingCount, hasUnpublishedConfig);
+    }
+
+    private String findCoverUrl(Gallery gallery, UUID tenant, int photoCount) {
+        if (photos == null || objects == null || storage == null) return null;
+        Optional<String> selected = Optional.ofNullable(gallery.coverPhotoId())
+                .flatMap(id -> photos.findById(tenant, id))
+                .filter(photo -> photo.galleryId().equals(gallery.id()) && photo.status() == PhotoStatus.READY)
+                .flatMap(photo -> coverImageUrl(photo, tenant));
+        String rawUrl = selected.orElseGet(() -> {
+            if (photoCount == 0) return null;
+            return photos.findPublicReadyByGalleryId(tenant, gallery.id(), 0, 1).stream()
+                    .findFirst()
+                    .flatMap(photo -> coverImageUrl(photo, tenant))
+                    .orElse(null);
+        });
+        return rawUrl != null && signedUrlService != null ? signedUrlService.signPhotoUrl(rawUrl, tenant.toString()) : rawUrl;
+    }
+
+    private Optional<String> coverImageUrl(Photo photo, UUID tenant) {
+        return objects.findById(tenant, photo.storageObjectId())
+                .filter(object -> object.status() == StorageObjectStatus.READY)
+                .map(object -> {
+                    String key = object.thumbnailKey() != null ? object.thumbnailKey() : object.objectKey();
+                    return storage.createReadUrl(key, ObjectStoragePort.DEFAULT_READ_URL_TTL).toString();
+                });
     }
 
     @GetMapping("/{galleryId}/publish-readiness")

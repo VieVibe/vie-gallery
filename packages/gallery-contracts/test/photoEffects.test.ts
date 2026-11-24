@@ -6,7 +6,7 @@ import { normalizeViewerConfig, serializeViewerConfig, parseViewerConfig } from 
 import { CURATED_STYLES, applyCuratedStyle, applyPhotoArrangement, resolveCuratedStyle } from '../src/curatedStyles'
 
 test('all presets have a unique photograph treatment independent of background and particles', () => {
-  assert.equal(new Set(Object.values(VIEWER_PRESETS).map(config => config.effects.photo?.style)).size, 16)
+  assert.equal(new Set(Object.values(VIEWER_PRESETS).map(config => config.effects.photo?.style)).size, PHOTO_EFFECTS.length)
   assert.equal(PHOTO_EFFECTS.length, 17)
   for (const [name, config] of Object.entries(VIEWER_PRESETS)) {
     assert.deepEqual(parseViewerConfig(serializeViewerConfig(config)).config.effects.photo, PRESET_PHOTO_EFFECTS[name])
@@ -95,7 +95,7 @@ test('quick style selection reflects rendered book and tunnel, without mislabeli
     assert.equal(resolveCuratedStyle(next), style.id)
     if (style.id === 'book' || style.id === 'tunnel') assert.equal(next.layout.mode, 'helix')
   }
-  for (const arrangement of ['orbit', 'filmstrip', 'fan', 'cascade', 'stack'] as const) {
+  for (const arrangement of ['orbit', 'fan', 'cascade', 'stack'] as const) {
     assert.equal(resolveCuratedStyle(applyPhotoArrangement(current, arrangement)), undefined)
   }
   assert.equal(resolveCuratedStyle(normalizeViewerConfig({ layout: { mode: 'helix' } }).config), undefined)

@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test'
 import { mockGallery } from './helpers/mockGallery'
-import { createRecommendedViewerConfig } from '@vie/gallery-contracts'
+import { VIEWER_PRESETS } from '@vie/gallery-contracts'
 
 test('large book turns, opens a page, fits mobile and restores other spatial arrangements', async ({ page }, info) => {
-  const config = createRecommendedViewerConfig()
+  const config = structuredClone(VIEWER_PRESETS['jade-flow'])
   config.camera.autoRotate = false
   config.particles.enabled = false
   config.effects.photoFloat = false

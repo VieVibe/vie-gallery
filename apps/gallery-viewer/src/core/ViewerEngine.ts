@@ -1,12 +1,13 @@
 import { MotionAtmosphere } from './MotionAtmosphere'
 import * as THREE from 'three'
-import { mergeViewerConfig, normalizeViewerConfig, resolvePhotoEffect, ViewerConfigValidationError, type PublicPhoto } from '@vie/gallery-contracts'
+import { applySpatialTheme, mergeViewerConfig, normalizeViewerConfig, resolvePhotoEffect, resolveSpatialPreset, ViewerConfigValidationError, type PublicPhoto } from '@vie/gallery-contracts'
 import { PhotoScene } from './PhotoScene'
 import { TexturePool, loadPhotoTexture } from './TexturePool'
 import { FrameClock } from './FrameClock'
 import { QualityController, QUALITY_BUDGETS, initialQuality, type Quality, type QualitySample, type QualityDecision } from './QualityController'
 import type { PhotoTheatrePlugin } from '../plugins/PhotoTheatrePlugin'
 import type { TheatreCommand } from '../lib/photoTheatre'
+import { COLLECTION_CHAPTER_SIZE } from '../lib/collectionLayout'
 import type { ParticlesPlugin } from '../plugins/ParticlesPlugin'
 import type { PostProcessing } from './PostProcessing'
 import type { ViewerDiagnosticApi } from './types'
@@ -131,8 +132,10 @@ export class ViewerEngine {
     this.renderer = this.createRenderer()
     this.atmosphere = new MotionAtmosphere(canvas, this.scene)
     this.clock = new FrameClock()
-    this.texturePool = new TexturePool(QUALITY_BUDGETS[this.effectiveQuality], loadPhotoTexture)
+    const collection = !!resolveSpatialPreset(this.configManager.getConfig())
+    this.texturePool = new TexturePool(this.sceneBudget(collection), loadPhotoTexture)
     this.photoScene = new PhotoScene(this.scene, this.texturePool, mesh => this.eventBus.emit('photo:texture-ready', mesh))
+    this.photoScene.setFlatCards(collection)
 
     // 初始化交互控制器 (OrbitControls)
     this.controls = this.createControls()
@@ -290,6 +293,13 @@ export class ViewerEngine {
     this.eventBus.emit('startup:effects-ready')
   }
 
+  private sceneBudget(collection: boolean) {
+    const budget = QUALITY_BUDGETS[this.effectiveQuality]
+    if (!collection) return budget
+    return { ...budget, maxEdge: this.effectiveQuality === 'low' ? 320 : 448,
+      resident: Math.max(budget.resident, COLLECTION_CHAPTER_SIZE) }
+  }
+
   private async reconcilePlugins(candidate: ViewerConfig, deferEffects = false): Promise<void> {
     if (this.disposed) return
     if (candidate.quality !== this.qualityRequest) {
@@ -299,10 +309,11 @@ export class ViewerEngine {
       this.qualityReason = null
     }
     const context = this.pluginContext ?? this.createContext()
-    const effective = structuredClone(candidate)
-    effective.effects.photo = resolvePhotoEffect(candidate)
+    const collection = !!resolveSpatialPreset(candidate)
+    const effective = collection ? applySpatialTheme(candidate) : structuredClone(candidate)
+    effective.effects.photo = resolvePhotoEffect(effective)
     effective.quality = this.effectiveQuality
-    const budget = QUALITY_BUDGETS[this.effectiveQuality]
+    const budget = this.sceneBudget(collection)
     const pixelRatio = Math.min(window.devicePixelRatio || 1, budget.dpr)
     if (this.renderer.getPixelRatio() !== pixelRatio) this.renderer.setPixelRatio(pixelRatio)
     const currentBudget = this.texturePool.getBudget()
@@ -320,7 +331,8 @@ export class ViewerEngine {
     const wanted = new Map<string, boolean>([
       ['Layout', effective.layout.params?.composition !== 'curated'],
       ['PhotoFade', effective.layout.params?.composition !== 'curated'],
-      ['SpatialStage', effective.layout.params?.composition === 'curated'], ['Lighting', true], ['Background', true],
+      ['SpatialStage', effective.layout.params?.composition === 'curated' && !collection],
+      ['CollectionStage', collection], ['Lighting', true], ['Background', !collection],
       ['PhotoSurface', effective.effects.photo.style !== 'none' && effective.effects.photo.intensity! > 0],
       ['Particles', effective.particles.enabled && effective.particles.types.length > 0 && (effective.particles.density ?? 1) > 0],
       ['Fog', !!effective.effects.fog?.enabled],
@@ -329,8 +341,9 @@ export class ViewerEngine {
     // Dispose the previous composition before installing its replacement.
     // Each composition owns photograph transforms and material state exclusively.
     for (const [name, enabled] of wanted) {
-      if (['Layout', 'PhotoFade', 'SpatialStage'].includes(name) && !enabled && this.pluginManager.isInstalled(name)) this.pluginManager.uninstall(name)
+      if (['Layout', 'PhotoFade', 'SpatialStage', 'CollectionStage'].includes(name) && !enabled && this.pluginManager.isInstalled(name)) this.pluginManager.uninstall(name)
     }
+    this.photoScene.setFlatCards(collection)
     for (const [name, enabled] of wanted) {
       if (deferEffects && ['Particles', 'Fog', 'ClickRipple', 'CursorTrail'].includes(name)) continue
       if (enabled) {
@@ -930,7 +943,7 @@ export class ViewerEngine {
     try {
       if (this.postProcessing) this.postProcessing.render(delta,
         this.scene.children.some(object => object.name === 'paper-book' && object.visible),
-        this.pluginManager.isInstalled('SpatialStage') || this.theatreView !== null || this.photoFocused)
+        this.pluginManager.isInstalled('SpatialStage') || this.pluginManager.isInstalled('CollectionStage') || this.theatreView !== null || this.photoFocused)
       else this.renderer.render(this.scene, this.camera)
     }
     catch (error) {

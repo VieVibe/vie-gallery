@@ -1,18 +1,11 @@
 import { test, expect, type Page } from '@playwright/test'
-import { PHOTO_ARRANGEMENTS, VIEWER_PRESETS, VIEWER_PRESET_CARDS } from '@vie/gallery-contracts'
+import { PHOTO_ARRANGEMENTS, SPATIAL_PRESETS, VIEWER_PRESETS, VIEWER_PRESET_CARDS } from '@vie/gallery-contracts'
 import { mockGallery } from '../../gallery-viewer/e2e/helpers/mockGallery'
 
 async function setSpacing(page: Page, value: number) {
   const slider = page.getByRole('slider', { name: '照片间距', exact: true })
   await expect(slider).toBeEnabled()
-  const bounds = await slider.evaluate(input => {
-    const range = input as HTMLInputElement
-    return { min: Number(range.min), max: Number(range.max), step: Number(range.step) }
-  })
-  const fromStart = Math.round((value - bounds.min) / bounds.step)
-  const fromEnd = Math.round((bounds.max - value) / bounds.step)
-  await slider.press(fromStart <= fromEnd ? 'Home' : 'End')
-  for (let step = 0; step < Math.min(fromStart, fromEnd); step++) await slider.press(fromStart <= fromEnd ? 'ArrowRight' : 'ArrowLeft')
+  await slider.fill(String(value))
   await expect(slider).toHaveValue(String(value))
 }
 
@@ -68,7 +61,7 @@ test('photo treatments and arrangement persist and reach the real preview withou
   await expect(treatments.getByRole('button', { name: '水波折射', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('slider', { name: '处理强度', exact: true })).toHaveValue('0.99')
   await page.getByRole('tab', { name: '风格', exact: true }).click()
-  const image = page.locator('.preset-card img').first()
+  const image = page.getByRole('img', { name: '翡翠流光风格预览', exact: true })
   await expect.poll(() => image.evaluate(img => (img as HTMLImageElement).naturalWidth)).toBe(320)
   expect(data.errors).toEqual([])
 })
@@ -78,7 +71,7 @@ test('style categories narrow complete looks without changing the current draft'
   await expect(page.getByRole('tab', { name: '风格', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('tabpanel', { name: '风格', exact: true })).toBeVisible()
   const categories = page.getByRole('group', { name: '风格分类', exact: true })
-  await expect(page.locator('.preset-card')).toHaveCount(16)
+  await expect(page.locator('.preset-card')).toHaveCount(VIEWER_PRESET_CARDS.length)
   for (const [name, category] of [['照片艺术', 'light'], ['全景空间', 'panorama']] as const) {
     const filter = categories.getByRole('button', { name: new RegExp(`^${name}`) })
     await filter.click()
@@ -89,14 +82,14 @@ test('style categories narrow complete looks without changing the current draft'
     await expect(page.locator('.selected-look')).toContainText('胶片展厅')
   }
   await categories.getByRole('button', { name: /^全部风格/ }).click()
-  await expect(page.locator('.preset-card')).toHaveCount(16)
+  await expect(page.locator('.preset-card')).toHaveCount(VIEWER_PRESET_CARDS.length)
   expect(data.draft().presetName).toBe('film-gallery')
   expect(data.draft().customized).toBe(false)
   expect(data.saves()).toBe(0)
   expect(data.errors).toEqual([])
 })
 
-test('every visual arrangement applies its matching geometry and preserves the selected look', async ({ page }) => {
+test('every legacy arrangement applies its matching geometry and preserves the selected look', async ({ page }) => {
   test.setTimeout(60000)
   const data = await fixture(page)
   await page.goto('/app/galleries/config-fixture/config')
@@ -105,7 +98,7 @@ test('every visual arrangement applies its matching geometry and preserves the s
   await expect(page.getByRole('group', { name: '照片编排', exact: true }).getByRole('button')).toHaveCount(10)
   await expect(page.getByRole('combobox', { name: '空间布局', exact: true })).toHaveCount(0)
   const frame = page.frameLocator('iframe[title="展厅实时预览"]')
-  for (const arrangement of PHOTO_ARRANGEMENTS) {
+  for (const arrangement of PHOTO_ARRANGEMENTS.filter(item => !SPATIAL_PRESETS.some(preset => preset.id === item.id))) {
     await arrangementButton(page, arrangement.id).click()
     await expect(arrangementButton(page, arrangement.id)).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(() => frame.locator('canvas.webgl-canvas').evaluate(() => {
@@ -154,7 +147,7 @@ test('read-only curators can inspect styles and versions without editing or publ
   const data = await fixture(page)
   await page.route('**/api/me', route => route.fulfill({ json: { role: 'VIEWER', capabilities: ['GALLERY_READ', 'CONFIG_READ'], user: { displayName: '只读策展人' }, tenant: { name: '配置验收' } } }))
   await page.goto('/app/galleries/config-fixture/config')
-  await expect(page.locator('.preset-card')).toHaveCount(16)
+  await expect(page.locator('.preset-card')).toHaveCount(VIEWER_PRESET_CARDS.length)
   for (const card of await page.locator('.preset-card').all()) await expect(card).toBeDisabled()
   await expect(page.getByRole('button', { name: '保存草稿', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '同步到访客端', exact: true })).toHaveCount(0)
@@ -421,13 +414,21 @@ test('config side panel matches the designed look', async ({ page }, info) => {
   await expect(page.locator('.side-heading')).toBeVisible()
   await expect(page.locator('.config-side')).toHaveCSS('background-color', 'rgb(255, 254, 250)')
   await page.getByRole('tab', { name: '风格', exact: true }).click()
-  await expect(page.locator('.preset-card')).toHaveCount(16)
+  await expect(page.locator('.preset-card')).toHaveCount(VIEWER_PRESET_CARDS.length)
   // 风格页优先展示完整方案，细调参数在其他分区。
   await expect(page.locator('.preset-card').filter({ hasText: '翡翠流光' }).locator('.preset-recommend')).toBeVisible()
   await expect(page.getByLabel('背景类型')).toHaveCount(0)
   const selected = page.locator('.preset-card[aria-pressed="true"]')
   await expect(selected).toHaveCount(1)
   await expect(selected).toContainText('胶片展厅')
+  const film = page.locator('.preset-card').filter({ hasText: '胶片影展' })
+  await expect(film.locator('img')).toBeVisible()
+  expect(await film.locator('img').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+  await film.click()
+  const filmFrame = page.frameLocator('iframe[title="展厅实时预览"]')
+  await expect.poll(() => filmFrame.locator('canvas').evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__?.snapshot().requested.presetName)).toBe('film-exhibition')
+  await expect.poll(() => filmFrame.locator('canvas').evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__?.snapshot().requested.layout.params?.arrangement)).toBe('filmstrip')
+
   await page.getByRole('tab', { name: '氛围', exact: true }).click()
   await page.getByLabel('背景类型').selectOption('image')
   await expect(page.getByLabel('渐变角度')).toHaveCount(0)
@@ -548,6 +549,9 @@ test('publishing a new preset cannot skip the version when legacy readiness says
   expect(JSON.parse(published).presetName).toBe('starry-night')
   expect(JSON.parse(published).particles.enabled).toBe(true)
   await expect(page.getByText('已发布 v2', { exact: true })).toBeVisible()
+  const successToast = page.locator('.toast-card').filter({ hasText: '配置已同步到访客端。' })
+  await successToast.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(successToast).toHaveCount(0)
   await page.getByRole('button', { name: '同步到访客端', exact: true }).click()
   await page.getByRole('button', { name: '发布展厅', exact: true }).click()
   await expect(page.getByText('配置已同步到访客端。', { exact: true })).toBeVisible()

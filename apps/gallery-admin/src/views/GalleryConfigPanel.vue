@@ -6,12 +6,13 @@ import type { Gallery, PublishReadinessResponse, ViewerConfigVersion } from '@vi
 import { useToast } from '../composables/useToast'
 import { useViewerConfigEditor } from '../composables/useViewerConfigEditor'
 import { createViewerPreviewChannel } from '../lib/viewerPreviewChannel'
-import { createRecommendedViewerConfig, isViewerPreset, parseViewerConfig, serializeViewerConfig, VIEWER_PRESET_CARDS, PHOTO_ARRANGEMENTS, PHOTO_EFFECTS, resolvePhotoArrangement, resolvePhotoEffect, type PresetName } from '@vie/gallery-contracts'
+import { applySpatialPreset, createRecommendedViewerConfig, isViewerPreset, parseViewerConfig, serializeViewerConfig, SPATIAL_PRESETS, VIEWER_PRESET_CARDS, PHOTO_ARRANGEMENTS, PHOTO_EFFECTS, resolvePhotoArrangement, resolvePhotoEffect, resolveSpatialPreset, type PresetName, type SpatialPreset } from '@vie/gallery-contracts'
 import LayoutControls from '../components/gallery-config/LayoutControls.vue'
 import AtmosphereControls from '../components/gallery-config/AtmosphereControls.vue'
 import MotionQualityControls from '../components/gallery-config/MotionQualityControls.vue'
 import PresetCards from '../components/gallery-config/PresetCards.vue'
 import PhotoEffectControls from '../components/gallery-config/PhotoEffectControls.vue'
+import ConfigField from '../components/gallery-config/ConfigField.vue'
 import Icon from '../components/Icon.vue'
 import BrandMark from '../components/BrandMark.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
@@ -82,6 +83,11 @@ const CONFIG_TABS = [
   { id: 'atmosphere' as const, label: '氛围' },
   { id: 'history' as const, label: '版本' }
 ]
+const currentSpatialPreset = computed(() => resolveSpatialPreset(config.value))
+const configTabs = computed(() => currentSpatialPreset.value
+  ? [{ id: 'style' as const, label: '展示效果' }, { id: 'composition' as const, label: '下载权限' }, CONFIG_TABS[3]!]
+  : CONFIG_TABS)
+const spatialLabel = computed(() => SPATIAL_PRESETS.find(preset => preset.id === currentSpatialPreset.value)?.label)
 const currentStyle = computed(() => VIEWER_PRESET_CARDS.find(item => item.name === config.value.presetName))
 const currentArrangement = computed(() => config.value.layout.params?.composition === 'curated'
   ? PHOTO_ARRANGEMENTS.find(item => item.id === resolvePhotoArrangement(config.value))?.label ?? '逐张策展'
@@ -89,17 +95,19 @@ const currentArrangement = computed(() => config.value.layout.params?.compositio
 const currentTreatment = computed(() => config.value.layout.params?.composition === 'curated' && resolvePhotoArrangement(config.value) === 'book'
   ? '原片印相' : PHOTO_EFFECTS.find(item => item.id === resolvePhotoEffect(config.value).style)?.label ?? '原片')
 watch(configTab, () => { configSideRef.value?.scrollTo({ top: 0 }) })
+watch(currentSpatialPreset, preset => { if (preset && configTab.value === 'atmosphere') configTab.value = 'style' })
 
 function handleTabKeydown(event: KeyboardEvent) {
-  const index = CONFIG_TABS.findIndex(tab => tab.id === configTab.value)
+  const tabs = configTabs.value
+  const index = tabs.findIndex(tab => tab.id === configTab.value)
   let next = index
-  if (event.key === 'ArrowRight') next = (index + 1) % CONFIG_TABS.length
-  else if (event.key === 'ArrowLeft') next = (index - 1 + CONFIG_TABS.length) % CONFIG_TABS.length
+  if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
+  else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length
   else if (event.key === 'Home') next = 0
-  else if (event.key === 'End') next = CONFIG_TABS.length - 1
+  else if (event.key === 'End') next = tabs.length - 1
   else return
   event.preventDefault()
-  configTab.value = CONFIG_TABS[next]!.id
+  configTab.value = tabs[next]!.id
   document.getElementById(`config-tab-${configTab.value}`)?.focus()
 }
 
@@ -410,6 +418,11 @@ function scheduleAutoSave() {
   saveTimer = window.setTimeout(() => { saveTimer = null; void save({ silent: true }) }, 800)
 }
 function patchConfig(input: unknown) { editor.patch(input); scheduleAutoSave() }
+function chooseSpatialPreset(preset: SpatialPreset) {
+  if (!canConfigWrite.value || !configLoaded.value || preset === currentSpatialPreset.value) return
+  editor.replace(serializeViewerConfig(applySpatialPreset(config.value, preset)))
+  scheduleAutoSave()
+}
 function applyPreset(name: PresetName) { editor.preset(name); scheduleAutoSave() }
 function resetPreset() { editor.resetPreset(); scheduleAutoSave() }
 
@@ -710,7 +723,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="config-page" :class="{ 'is-full': isFullscreen }">
+  <div class="config-page" :class="{ 'is-full': isFullscreen, 'is-collection-config': !!currentSpatialPreset }">
     <div class="config-scene" aria-hidden="true"></div>
 
     <header class="config-nav">
@@ -782,7 +795,7 @@ onUnmounted(() => {
         <div class="side-heading"><strong>你的照片，你的展览。</strong><span>从一种风格开始，让编排、光影与作品彼此呼应。</span></div>
         <div class="side-tabs" role="tablist" aria-label="配置分区" @keydown="handleTabKeydown">
           <button
-            v-for="tab in CONFIG_TABS"
+            v-for="tab in configTabs"
             :key="tab.id"
             :id="`config-tab-${tab.id}`"
             class="side-tab"
@@ -799,11 +812,24 @@ onUnmounted(() => {
         </div>
 
         <div id="config-panel-style" role="tabpanel" aria-labelledby="config-tab-style" v-show="configTab === 'style'">
-          <PresetCards :config="config" :disabled="!canConfigWrite || !configLoaded" @preset="applyPreset" @reset="resetPreset" />
+          <section class="side-block spatial-preset-picker" aria-label="默认 3D 展示效果">
+            <h2>默认 3D 展示效果</h2>
+            <div class="spatial-preset-buttons">
+              <button v-for="preset in SPATIAL_PRESETS" :key="preset.id" type="button" :aria-pressed="currentSpatialPreset === preset.id" :disabled="!canConfigWrite || !configLoaded" @click="chooseSpatialPreset(preset.id)">
+                <strong>{{ preset.label }}</strong><span>{{ preset.caption }}</span>
+              </button>
+            </div>
+          </section>
+          <PresetCards v-if="!currentSpatialPreset" :config="config" :disabled="!canConfigWrite || !configLoaded" @preset="applyPreset" @reset="resetPreset" />
         </div>
         <div id="config-panel-composition" role="tabpanel" aria-labelledby="config-tab-composition" v-if="configTab === 'composition'">
-          <LayoutControls :config="config" :issues="issues" :disabled="!canConfigWrite || !configLoaded" @patch="patchConfig" />
-          <PhotoEffectControls :config="config" :issues="issues" :disabled="!canConfigWrite || !configLoaded" @patch="patchConfig" />
+          <section v-if="currentSpatialPreset" class="side-block">
+            <ConfigField path="visitorAllowDownload" label="允许访客下载照片" hint="访客可以下载原始照片文件。" :config="config" :issues="issues" :disabled="!canConfigWrite || !configLoaded" @patch="patchConfig" />
+          </section>
+          <template v-else>
+            <LayoutControls :config="config" :issues="issues" :disabled="!canConfigWrite || !configLoaded" @patch="patchConfig" />
+            <PhotoEffectControls :config="config" :issues="issues" :disabled="!canConfigWrite || !configLoaded" @patch="patchConfig" />
+          </template>
         </div>
         <div id="config-panel-atmosphere" role="tabpanel" aria-labelledby="config-tab-atmosphere" v-if="configTab === 'atmosphere'">
           <AtmosphereControls :config="config" :issues="issues" :disabled="!canConfigWrite || !configLoaded" @patch="patchConfig" />
@@ -887,8 +913,8 @@ onUnmounted(() => {
         </div>
         <div v-if="previewLive && !isFullscreen" class="preview-caption" aria-label="当前展示方案">
           <span class="preview-caption-label">当前方案</span>
-          <strong>{{ currentStyle?.label || '自定义风格' }}<span v-if="config.customized" class="customized-mark">已微调</span></strong>
-          <span>{{ currentArrangement }}<span class="summary-dot">·</span>{{ currentTreatment }}</span>
+          <strong>{{ spatialLabel || currentStyle?.label || '自定义风格' }}<span v-if="!currentSpatialPreset && config.customized" class="customized-mark">已微调</span></strong>
+          <span v-if="!currentSpatialPreset">{{ currentArrangement }}<span class="summary-dot">·</span>{{ currentTreatment }}</span>
         </div>
       </section>
     </div>
@@ -951,6 +977,19 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.spatial-preset-picker h2 { margin-bottom: 12px; }
+.spatial-preset-buttons { display: grid; gap: 8px; }
+.spatial-preset-buttons button {
+  display: grid; gap: 4px; padding: 11px 14px; border: 1px solid #cbddca;
+  border-radius: 8px; background: #f5f8f1; color: #254b36; text-align: left;
+}
+.spatial-preset-buttons button[aria-pressed='true'],
+.spatial-preset-buttons button:hover:not(:disabled) { background: #e0efdf; border-color: #81a489; }
+.spatial-preset-buttons button span { color: #466655; font-size: 12px; }
+.is-collection-config .preview-pane { background: #f5f8f1; }
+.is-collection-config .preview-caption { background: #f5f8f1ef; color: #254b36; border-color: #cbddca; }
+.is-collection-config .preview-caption-label,
+.is-collection-config .preview-caption > span:last-child { color: #466655; }
 .config-page {
   min-height:100dvh;
   background:var(--bg-app);

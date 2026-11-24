@@ -19,9 +19,9 @@ test('scene background urls are versioned, thumbnailed and tiered by quality', (
   assert.equal(backgroundTextureUrl(unknownScene, 'low'), unknownScene)
 })
 
-test('sixteen complete scenes are distinct, valid and clear previous scene effects', () => {
+test('complete scenes are distinct, valid and clear previous scene effects', () => {
   const fingerprints = new Set<string>()
-  assert.equal(Object.keys(VIEWER_PRESETS).length, 16)
+  assert.equal(Object.keys(VIEWER_PRESETS).length, 17)
   for (const [name, scene] of Object.entries(VIEWER_PRESETS)) {
     assert.equal(normalizeViewerConfig(scene).issues.length, 0, name)
     fingerprints.add(JSON.stringify([scene.layout, scene.particles, scene.background, scene.effects, scene.camera]))
@@ -32,7 +32,7 @@ test('sixteen complete scenes are distinct, valid and clear previous scene effec
     assert.equal(minimal.effects.postGrade?.enabled, false)
     assert.equal(minimal.camera?.autoRotate, false)
   }
-  assert.equal(fingerprints.size, 16)
+  assert.equal(fingerprints.size, Object.keys(VIEWER_PRESETS).length)
 })
 test('scene switch and restore preserve access, quality, audio and nested extensions', () => {
   const current = normalizeViewerConfig({ quality: 'low', visitorAllowDownload: true, extension: { label: 'kept' }, camera: { extension: true }, audio: { bgm: { enabled: true } } }).config
@@ -82,21 +82,20 @@ test('saved builtin background URLs load the current asset version at every qual
   }
 })
 
-test('recommended scene is a valid, clone-isolated curated helix without a background download', () => {
+test('new galleries start with a clone-isolated daylight collection without a background download', () => {
   assert.equal(RECOMMENDED_SCENE_PRESET, 'jade-flow')
   const recommended = createRecommendedViewerConfig() as typeof VIEWER_PRESETS['starry-night']
-  assert.equal(recommended.layout.mode, 'helix')
+  assert.equal(recommended.layout.mode, 'grid')
   assert.equal(recommended.layout.params?.composition, 'curated')
   assert.equal(normalizeViewerConfig(recommended).issues.length, 0)
   assert.equal(recommended.background?.mode, 'gradient')
-  assert.equal(recommended.background?.color, '#111a17')
-  assert.equal(recommended.background?.secondaryColor, '#263b32')
-  assert.deepEqual(recommended, VIEWER_PRESETS[RECOMMENDED_SCENE_PRESET])
-  assert.equal(recommended.customized, false)
+  assert.equal(recommended.background?.color, '#f5f8f1')
+  assert.equal(recommended.background?.secondaryColor, '#dcebdd')
+  assert.equal(resolvePhotoArrangement(recommended), 'tide')
   recommended.effects.bloom!.strength = 9
   recommended.presetName = 'mutated'
-  assert.equal(VIEWER_PRESETS['starry-night'].effects.bloom!.strength, .5, 'preset registry must not be mutated')
-  assert.equal(VIEWER_PRESETS['starry-night'].presetName, 'starry-night')
+  assert.equal(VIEWER_PRESETS['jade-flow'].effects.bloom!.strength, 0, 'preset registry must not be mutated')
+  assert.equal(VIEWER_PRESETS['jade-flow'].presetName, 'jade-flow')
 })
 
 test('every preset replaces composition and background motion without losing nested extensions', () => {
