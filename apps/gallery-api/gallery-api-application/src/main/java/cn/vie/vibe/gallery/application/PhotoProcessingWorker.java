@@ -37,6 +37,7 @@ public class PhotoProcessingWorker implements DisposableBean {
     private final ImageVariantProcessor variants;
     private final PhotoAssetVariantRepository assetVariants;
     private final GalleryTexturePolicy texturePolicy;
+    private final PhotoPreviewProcessor previews;
     private final String workerId = "gallery-worker-" + UUID.randomUUID();
     private final int maxAttempts;
     private final Duration staleAfter;
@@ -48,14 +49,14 @@ public class PhotoProcessingWorker implements DisposableBean {
 
     public PhotoProcessingWorker(PhotoProcessingTaskRepository tasks, PhotoRepository photos, StorageObjectRepository objects,
                                  ObjectStoragePort storage, ThumbnailProcessor thumbnails) {
-        this(tasks, photos, objects, storage, thumbnails, null, null, null, null, 3, Duration.ofMinutes(10));
+        this(tasks, photos, objects, storage, thumbnails, null, null, null, null, null, 3, Duration.ofMinutes(10));
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public PhotoProcessingWorker(PhotoProcessingTaskRepository tasks, PhotoRepository photos, StorageObjectRepository objects,
                                  ObjectStoragePort storage, ThumbnailProcessor thumbnails, TenantQuotaRepository quotas,
                                  ImageVariantProcessor variants, PhotoAssetVariantRepository assetVariants,
-                                 GalleryTexturePolicy texturePolicy,
+                                 GalleryTexturePolicy texturePolicy, PhotoPreviewProcessor previews,
                                  @Value("${gallery.processing.max-retries:3}") int maxRetries,
                                  @Value("${gallery.processing.stale-after:PT10M}") Duration staleAfter) {
         this.tasks = tasks;
@@ -67,6 +68,7 @@ public class PhotoProcessingWorker implements DisposableBean {
         this.variants = variants;
         this.assetVariants = assetVariants;
         this.texturePolicy = texturePolicy;
+        this.previews = previews;
         this.maxAttempts = Math.max(1, maxRetries);
         this.staleAfter = staleAfter == null || staleAfter.isNegative() || staleAfter.isZero()
                 ? Duration.ofMinutes(10) : staleAfter;
@@ -144,6 +146,10 @@ public class PhotoProcessingWorker implements DisposableBean {
                                     texture.width(), texture.height(), null));
                         }
                     }
+                }
+                if (previews != null) {
+                    requireLease(task, leaseLost);
+                    previews.generate(task.tenantId(), task.photoId(), object.id(), result.content());
                 }
                 tasks.progress(task.tenantId(), task.id(), workerId, 80, "FINALIZE", Instant.now());
                 requireLease(task, leaseLost);

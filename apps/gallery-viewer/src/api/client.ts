@@ -200,6 +200,7 @@ export class PublicApiClient {
     result.items = result.items.map(photo => ({
       ...photo,
       thumbnailUrl: photo.thumbnailUrl ? galleryMediaUrl(photo.thumbnailUrl) : null,
+      previewUrl: photo.previewUrl ? galleryMediaUrl(photo.previewUrl) : photo.previewUrl,
       mediumUrl: photo.mediumUrl ? galleryMediaUrl(photo.mediumUrl) : photo.mediumUrl,
       textureUrl: photo.textureUrl ? galleryMediaUrl(photo.textureUrl) : photo.textureUrl
     }))

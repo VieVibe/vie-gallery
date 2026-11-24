@@ -135,6 +135,10 @@ export type PublicAccessState = 'READY' | 'PASSWORD_REQUIRED' | 'SHARE_LINK_REQU
 
 export interface PublicGalleryCover {
   url: string
+  previewUrl?: string | null
+  previewWidth?: number | null
+  displayUrl?: string | null
+  displayWidth?: number | null
   width: number
   height: number
 }
@@ -156,6 +160,7 @@ export interface UnlockResponse {
 export interface PublicPhoto {
   title: string | null
   thumbnailUrl: string | null
+  previewUrl?: string | null
   width: number
   height: number
   sortOrder: number

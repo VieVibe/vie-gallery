@@ -103,6 +103,11 @@ const storedViewMode = (() => {
 })()
 const initialSpatial = isConfigPreview() || (!creatorPreview && storedViewMode === '3d')
 const viewMode = ref<ViewerViewMode>(initialSpatial ? '3d' : '2d')
+const showEarlyAlbum = computed(() =>
+  viewMode.value === '2d' && !isEmbedPreview() && viewer.state.value === 'loading' &&
+  viewer.gallery.value?.accessState === 'READY' && !!viewer.gallery.value.cover
+)
+const albumTotal = computed(() => showEarlyAlbum.value ? viewer.gallery.value?.photoCount ?? 0 : viewer.total.value)
 const fullscreenAvailable = typeof document.documentElement.requestFullscreen === 'function'
 watch(viewMode, (mode) => {
   if (creatorPreview || webglFallbackMessage.value) return
@@ -118,6 +123,7 @@ watch(
     if ((!isReady && !isEmpty) || mode !== '2d') return
     await nextTick()
     performance.mark('viewer:interactive')
+    if (performance.getEntriesByName('viewer:first-photo-rendered').length) markAlbumReady()
     if (isConfigPreview()) notifyParentReady()
   }
 )
@@ -790,10 +796,9 @@ async function loadNextStageChapter() {
 }
 
 function markAlbumReady() {
-  if (viewMode.value === '2d' && !performance.getEntriesByName('viewer:first-photo-rendered').length) {
-    performance.mark('viewer:first-photo-rendered')
-    if (collectionPreset.value) void loadViewer3dModules().catch(() => {})
-  }
+  if (viewMode.value !== '2d') return
+  if (!performance.getEntriesByName('viewer:first-photo-rendered').length) performance.mark('viewer:first-photo-rendered')
+  if (viewer.isReady.value && collectionPreset.value) void loadViewer3dModules().catch(() => {})
 }
 
 // 照片数量与视图模式共同决定 HUD 装载：
@@ -829,7 +834,7 @@ function resetView() {
     }"
   >
     <!-- 1. 加载中状态 -->
-    <div v-if="viewer.state.value === 'loading'" class="loading-screen" role="status" aria-live="polite" aria-busy="true">
+    <div v-if="viewer.state.value === 'loading' && !showEarlyAlbum" class="loading-screen" role="status" aria-live="polite" aria-busy="true">
       <div class="loader-box">
         <span class="loader-wordmark" aria-hidden="true">阳光明媚</span>
         <div class="loader-line" aria-hidden="true"></div>
@@ -894,7 +899,7 @@ function resetView() {
     />
 
     <!-- 5. 就绪：沉浸式双模画廊 -->
-    <div v-else-if="viewer.isReady.value" class="gallery-viewport">
+    <div v-else-if="viewer.isReady.value || showEarlyAlbum" class="gallery-viewport">
       <div v-if="viewMode === '3d' && apmMetrics?.failedTextures && !webglFallbackMessage" class="webgl-fallback-banner" role="status">
         <span>{{ apmMetrics?.failedTextures }} 张照片的预览暂未载入</span>
         <button type="button" @click="engine?.retryPhotoTextures()">重试照片预览</button>
@@ -908,7 +913,7 @@ function resetView() {
       <header class="exhibition-header" :inert="isImmersive || undefined">
         <button type="button" class="exhibition-brand" @click="returnToStart" :aria-label="viewMode === '3d' ? '阳光明媚 · 回到展厅起点' : '阳光明媚 · 回到封面'"><img src="/favicon.svg" width="30" height="30" alt="" /><span>阳光明媚</span></button>
         <div class="exhibition-tools">
-          <button type="button" class="exhibition-mode" @click="viewMode = viewMode === '3d' ? '2d' : '3d'">
+          <button type="button" class="exhibition-mode" :disabled="showEarlyAlbum" @click="viewMode = viewMode === '3d' ? '2d' : '3d'">
             <Icon :name="viewMode === '3d' ? 'grid' : 'cube'" :size="16" />
             <span>{{ viewMode === '3d' ? '平面展览' : '空间漫游' }}</span>
           </button>
@@ -1018,7 +1023,7 @@ function resetView() {
         v-else
         :gallery="viewer.gallery.value"
         :photos="viewer.photos.value"
-        :total="viewer.total.value"
+        :total="albumTotal"
         :loading-more="viewer.loadingMore.value"
         :error="viewer.error.value"
         @start="startAlbum"
@@ -1032,7 +1037,7 @@ function resetView() {
         v-if="showShareSheet"
         :show="showShareSheet"
         :gallery-title="viewer.gallery.value?.title || ''"
-        :photo-count="viewer.total.value"
+        :photo-count="albumTotal"
         @close="showShareSheet = false"
       />
     </div>

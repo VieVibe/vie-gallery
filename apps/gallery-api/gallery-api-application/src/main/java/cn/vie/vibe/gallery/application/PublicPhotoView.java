@@ -10,9 +10,10 @@ public record PublicPhotoView(
         int height,
         int sortOrder,
         String mediumUrl,
-        String textureUrl
+        String textureUrl,
+        String previewUrl
 ) {
     public PublicPhotoView(String title, String thumbnailUrl, int width, int height, int sortOrder) {
-        this(title, thumbnailUrl, width, height, sortOrder, null, null);
+        this(title, thumbnailUrl, width, height, sortOrder, null, null, null);
     }
 }

@@ -171,3 +171,33 @@ test('lightbox keeps a photographic preview visible while the full image is load
     expect(errors).toEqual([])
   } finally { release() }
 })
+
+test('lightbox falls back to legacy previews when a WebP cannot be decoded', async ({ page }) => {
+  await mockGallery(page, { count: 2, defaultView: true })
+  await page.route('**/api/public/g/effects-fixture/photos?**', route => route.fulfill({ json: {
+    items: [
+      { title: '山川来信', width: 900, height: 600, sortOrder: 0, thumbnailUrl: '/fixtures/photo-0.svg',
+        previewUrl: '/fixtures/broken-preview.webp', textureUrl: '/fixtures/full-resolution.svg' },
+      { title: '远方', width: 900, height: 600, sortOrder: 1, thumbnailUrl: '/fixtures/photo-1.svg' }
+    ],
+    page: 0, pageSize: 50, total: 2
+  } }))
+  await page.route('**/fixtures/broken-preview.webp', route => route.fulfill({ contentType: 'image/webp', body: 'Invalid image' }))
+  let release!: () => void
+  const fullSize = new Promise<void>(resolve => { release = resolve })
+  await page.route('**/fixtures/full-resolution.svg', async route => {
+    await fullSize
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"/>' })
+  })
+  try {
+    await page.goto('/g/effects-fixture')
+    await page.getByRole('button', { name: '查看照片 1：山川来信', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    for (const preview of [dialog.locator('.image-preview'), dialog.getByRole('button', { name: '查看第 1 张：山川来信' }).locator('img')]) {
+      await expect(preview).toHaveAttribute('src', '/fixtures/photo-0.svg', { timeout: 5000 })
+      await expect.poll(() => preview.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+    }
+  } finally {
+    release()
+  }
+})

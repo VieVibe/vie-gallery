@@ -122,7 +122,7 @@ public class PublicAccessFacade {
                 gallery.name(),
                 gallery.visibility(),
                 accessState,
-                canExposePhotos ? findCover(gallery) : null,
+                photoCount > 0 ? findCover(gallery) : null,
                 photoCount
         );
     }
@@ -228,8 +228,9 @@ public class PublicAccessFacade {
                 pageSize
         );
 
+        boolean allowDownload = !photos.isEmpty() && allowVisitorDownload(gallery);
         List<PublicPhotoView> items = photos.stream()
-                .map(photo -> toPublicPhoto(gallery, photo, allowVisitorDownload(gallery)))
+                .map(photo -> toPublicPhoto(gallery, photo, allowDownload))
                 .flatMap(Optional::stream)
                 .toList();
 
@@ -291,11 +292,10 @@ public class PublicAccessFacade {
             if (explicit.isPresent()) return explicit.get();
         }
 
-        return photoRepository.findByGallery(gallery.tenantId(), gallery.id()).stream()
-                .filter(photo -> photo.status() == PhotoStatus.READY && photo.cover())
-                .map(photo -> toCover(gallery, photo))
-                .flatMap(Optional::stream)
-                .findFirst()
+        return photoRepository.findPublicReadyMarkedCover(gallery.tenantId(), gallery.id())
+                .flatMap(photo -> toCover(gallery, photo))
+                .or(() -> photoRepository.findPublicReadyByGalleryId(gallery.tenantId(), gallery.id(), 0, 1).stream()
+                        .findFirst().flatMap(photo -> toCover(gallery, photo)))
                 .orElse(null);
     }
 
@@ -304,10 +304,15 @@ public class PublicAccessFacade {
                 .filter(object -> object.status() == StorageObjectStatus.READY)
                 .map(object -> {
                     String key = object.thumbnailKey() != null ? object.thumbnailKey() : object.objectKey();
+                    List<PhotoAssetVariant> variants = readyVariants(photo);
+                    PhotoAssetVariant preview = variantOfKind(variants, VariantKind.PREVIEW);
+                    PhotoAssetVariant display = variantOfKind(variants, VariantKind.COVER);
                     return new PublicGalleryView.CoverView(
                             objectStoragePort.createReadUrl(key, ObjectStoragePort.DEFAULT_READ_URL_TTL).toString(),
                             object.width() == null ? 0 : object.width(),
-                            object.height() == null ? 0 : object.height()
+                            object.height() == null ? 0 : object.height(),
+                            variantUrl(preview), preview == null ? null : preview.width(),
+                            variantUrl(display), display == null ? null : display.width()
                     );
                 });
     }
@@ -317,26 +322,34 @@ public class PublicAccessFacade {
                 .filter(object -> object.status() == StorageObjectStatus.READY)
                 .map(object -> {
                     String key = object.thumbnailKey() != null ? object.thumbnailKey() : object.objectKey();
-                    String mediumUrl = null;
-                    if (allowDownload && assetVariants != null) {
-                        mediumUrl = assetVariants.findReadyByPhotoAndKind(
-                                        gallery.tenantId(), photo.id(), VariantKind.MEDIUM)
-                                .map(variant -> objectStoragePort.createReadUrl(
-                                        variant.objectKey(), ObjectStoragePort.DEFAULT_READ_URL_TTL).toString())
-                                .orElse(null);
-                    }
-                    String textureUrl = assetVariants == null ? null : assetVariants.findReadyByPhotoAndKind(
-                            gallery.tenantId(), photo.id(), VariantKind.TEXTURE)
-                            .map(variant -> objectStoragePort.createReadUrl(variant.objectKey(), ObjectStoragePort.DEFAULT_READ_URL_TTL).toString())
-                            .orElse(null);
+                    List<PhotoAssetVariant> variants = readyVariants(photo);
                     return new PublicPhotoView(
                             photo.title(),
                             objectStoragePort.createReadUrl(key, ObjectStoragePort.DEFAULT_READ_URL_TTL).toString(),
                             object.width() == null ? 0 : object.width(),
                             object.height() == null ? 0 : object.height(),
-                            photo.sortOrder(), mediumUrl, textureUrl
+                            photo.sortOrder(),
+                            allowDownload ? variantUrl(variantOfKind(variants, VariantKind.MEDIUM)) : null,
+                            variantUrl(variantOfKind(variants, VariantKind.TEXTURE)),
+                            variantUrl(variantOfKind(variants, VariantKind.PREVIEW))
                     );
                 });
+    }
+
+    private List<PhotoAssetVariant> readyVariants(Photo photo) {
+        if (assetVariants == null) return List.of();
+        return assetVariants.findByPhoto(photo.tenantId(), photo.id()).stream()
+                .filter(variant -> variant.status() == VariantStatus.READY && variant.storageObjectId().equals(photo.storageObjectId()))
+                .toList();
+    }
+
+    private PhotoAssetVariant variantOfKind(List<PhotoAssetVariant> variants, VariantKind kind) {
+        return variants.stream().filter(variant -> variant.kind() == kind).findFirst().orElse(null);
+    }
+
+    private String variantUrl(PhotoAssetVariant variant) {
+        return variant == null ? null : objectStoragePort.createReadUrl(
+                variant.objectKey(), ObjectStoragePort.DEFAULT_READ_URL_TTL).toString();
     }
 
     private void validatePage(int page, int pageSize) {

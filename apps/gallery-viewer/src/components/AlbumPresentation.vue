@@ -23,9 +23,25 @@ const emit = defineEmits<{
 
 const title = computed(() => props.gallery?.title?.trim() || '照片相册')
 const cover = computed(() => props.gallery?.cover)
+const coverDisplayUrl = computed(() => cover.value?.displayUrl ? galleryMediaUrl(cover.value.displayUrl) : null)
+const coverPreviewUrl = computed(() => cover.value?.previewUrl ? galleryMediaUrl(cover.value.previewUrl) : null)
+const responsiveCover = computed(() => {
+  const previewWidth = cover.value?.previewWidth
+  const displayWidth = cover.value?.displayWidth
+  const preview = coverPreviewUrl.value
+  const display = coverDisplayUrl.value
+  if (!preview || !display || !previewWidth || !displayWidth || previewWidth >= displayWidth) return null
+  return {
+    src: display,
+    preview,
+    srcset: [preview + ' ' + previewWidth + 'w', display + ' ' + displayWidth + 'w'].join(', '),
+    sizes: '(max-width: 760px) calc(100vw - 40px), (max-width: 1440px) 60vw, 840px'
+  }
+})
 const coverSources = computed(() => {
   const first = props.photos[0]
-  return [cover.value?.url ? galleryMediaUrl(cover.value.url) : null, first?.mediumUrl, first?.thumbnailUrl, first?.textureUrl]
+  return [coverDisplayUrl.value, coverPreviewUrl.value, cover.value?.url ? galleryMediaUrl(cover.value.url) : null,
+    first?.previewUrl, first?.mediumUrl, first?.thumbnailUrl, first?.textureUrl]
 })
 const coverRatio = computed(() => {
   const dimensions = cover.value ?? props.photos[0]
@@ -47,7 +63,7 @@ function goTo(heading: HTMLElement | null) {
         <p class="album-count">{{ total }} 张照片</p>
         <h1 id="album-title" ref="titleHeading" tabindex="-1">{{ title }}</h1>
         <div class="album-actions">
-          <button class="album-start" type="button" @click="emit('start')">开始浏览</button>
+          <button class="album-start" type="button" :disabled="!photos.length" @click="emit('start')">开始浏览</button>
           <button v-if="photos.length > 1" type="button" class="album-index-link" @click="goTo(photoHeading)">查看全部</button>
         </div>
       </div>
@@ -55,14 +71,15 @@ function goTo(heading: HTMLElement | null) {
         <AlbumImage
           :sources="coverSources"
           :alt="`${title}的封面`"
+          :responsive="responsiveCover"
           eager
           priority
-          @settled="emit('first-photo-rendered')"
+          @loaded="emit('first-photo-rendered')"
         >封面暂不可用</AlbumImage>
       </figure>
     </section>
 
-    <section id="album-photos" class="album-photos" aria-labelledby="album-photos-title">
+    <section v-if="photos.length" id="album-photos" class="album-photos" aria-labelledby="album-photos-title">
       <header class="album-photos-heading">
         <h2 id="album-photos-title" ref="photoHeading" tabindex="-1">全部照片</h2>
         <span v-if="photos.length < total">{{ photos.length }} / {{ total }}</span>
@@ -74,7 +91,7 @@ function goTo(heading: HTMLElement | null) {
       </button>
     </section>
 
-    <footer class="album-footer">
+    <footer v-if="photos.length" class="album-footer">
       <span>阳光明媚</span>
       <button type="button" @click="goTo(titleHeading)">回到封面 <Icon name="chevron-up" :size="16" /></button>
     </footer>
@@ -123,7 +140,8 @@ function goTo(heading: HTMLElement | null) {
   font-size: .9375rem;
   font-weight: 600;
 }
-.album-start:hover { background: #183827; }
+.album-start:disabled { opacity: .65; }
+.album-start:hover:not(:disabled) { background: #183827; }
 .album-index-link { display: inline-flex; align-items: center; min-height: 44px; color: #43584b; font-size: .875rem; text-decoration: underline; text-underline-offset: .24em; }
 .album-cover {
   position: relative;

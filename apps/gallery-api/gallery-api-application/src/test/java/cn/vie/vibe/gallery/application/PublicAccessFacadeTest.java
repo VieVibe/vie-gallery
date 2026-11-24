@@ -331,6 +331,43 @@ class PublicAccessFacadeTest {
     }
 
     @Test
+    void aGalleryWithoutAnExplicitCoverReturnsItsFirstReadyPhoto() {
+        DownloadFixture fixture = new DownloadFixture(false);
+        Gallery gallery = fixture.addGallery(GalleryVisibility.PUBLIC, null, "gallery-without-cover");
+        fixture.addReadyPhoto(gallery, "first");
+
+        PublicGalleryView result = fixture.facade.resolvePublicGallery(gallery.slug(), null, null);
+
+        assertNotNull(result.cover());
+        assertEquals("https://cdn.test/thumb/first", result.cover().url());
+    }
+
+    @Test
+    void previewRenditionsFollowTheGalleryAccessGateWithoutEnablingDownloads() {
+        DownloadFixture fixture = new DownloadFixture(false);
+        Gallery gallery = fixture.addGallery(GalleryVisibility.PASSWORD, "hash:secret", "locked-gallery");
+        Photo photo = fixture.addReadyPhoto(gallery, "first");
+        fixture.variants.put(photo.id() + ":PREVIEW", PhotoAssetVariant.ready(fixture.tenantId, photo.id(), photo.storageObjectId(),
+                VariantKind.PREVIEW, "preview.webp", "image/webp", 12, 480, 320, null));
+        fixture.variants.put(photo.id() + ":COVER", PhotoAssetVariant.ready(fixture.tenantId, photo.id(), photo.storageObjectId(),
+                VariantKind.COVER, "cover.webp", "image/webp", 24, 960, 640, null));
+
+        assertNull(fixture.facade.resolvePublicGallery(gallery.slug(), null, null).cover());
+        assertThrows(PublicAccessException.class, () -> fixture.facade.listPublicPhotos(gallery.slug(), null, null, 0, 10));
+
+        PublicUnlockSession unlocked = fixture.facade.unlockGallery(gallery.slug(), null, "secret");
+        PublicGalleryView.CoverView cover = fixture.facade.resolvePublicGallery(gallery.slug(), null, unlocked, null).cover();
+        assertEquals("https://cdn.test/preview.webp", cover.previewUrl());
+        assertEquals(480, cover.previewWidth());
+        assertEquals("https://cdn.test/cover.webp", cover.displayUrl());
+        assertEquals(960, cover.displayWidth());
+        PublicPhotoView item = fixture.facade.listPublicPhotos(gallery.slug(), null, unlocked, null, 0, 10).items().get(0);
+        assertEquals("https://cdn.test/preview.webp", item.previewUrl());
+        assertEquals("https://cdn.test/thumb/first", item.thumbnailUrl());
+        assertNull(item.mediumUrl());
+    }
+
+    @Test
     void parseVisitorAllowDownloadReadsBooleanFromConfigJson() {
         assertFalse(PublicAccessFacade.parseVisitorAllowDownload(null));
         assertFalse(PublicAccessFacade.parseVisitorAllowDownload("{}"));
@@ -682,7 +719,11 @@ class PublicAccessFacadeTest {
         DownloadFixture(boolean allowDownload) {
             PhotoAssetVariantRepository assetVariants = new PhotoAssetVariantRepository() {
                 public PhotoAssetVariant upsert(PhotoAssetVariant variant) { return variant; }
-                public List<PhotoAssetVariant> findByPhoto(UUID tenantId, UUID photoId) { return List.of(); }
+                public List<PhotoAssetVariant> findByPhoto(UUID tenantId, UUID photoId) {
+                    return variants.values().stream()
+                            .filter(variant -> variant.tenantId().equals(tenantId) && variant.photoId().equals(photoId))
+                            .toList();
+                }
                 public Optional<PhotoAssetVariant> findReadyByPhotoAndKind(UUID tenantId, UUID photoId, VariantKind kind) {
                     return Optional.ofNullable(variants.get(photoId + ":" + kind.name()));
                 }

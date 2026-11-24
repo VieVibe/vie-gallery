@@ -13,4 +13,10 @@ public interface PhotoAssetVariantRepository {
     Optional<PhotoAssetVariant> findReadyByPhotoAndKind(UUID tenantId, UUID photoId, VariantKind kind);
     int markFailed(UUID tenantId, UUID photoId, VariantKind kind);
     int softDelete(UUID tenantId, UUID photoId, VariantKind kind);
+
+    default List<PreviewCandidate> findMissingPreviews(UUID afterPhotoId, int limit) {
+        return List.of();
+    }
+
+    record PreviewCandidate(UUID tenantId, UUID photoId, UUID storageObjectId, String sourceKey, String sourceType) {}
 }

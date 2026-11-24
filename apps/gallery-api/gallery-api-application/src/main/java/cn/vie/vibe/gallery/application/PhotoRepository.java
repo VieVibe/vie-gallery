@@ -12,6 +12,11 @@ public interface PhotoRepository {
     int countByGalleryId(UUID galleryId);
     List<Photo> findByGalleryIdWithPagination(UUID galleryId, int offset, int limit);
     List<Photo> findPublicReadyByGalleryId(UUID tenantId, UUID galleryId, int offset, int limit);
+    default Optional<Photo> findPublicReadyMarkedCover(UUID tenantId, UUID galleryId) {
+        return findByGallery(tenantId, galleryId).stream()
+                .filter(photo -> photo.status() == PhotoStatus.READY && photo.cover())
+                .findFirst();
+    }
     int countPublicReadyByGalleryId(UUID tenantId, UUID galleryId);
     int countFailedByGalleryId(UUID tenantId, UUID galleryId);
     int updateStatus(UUID tenantId, UUID photoId, PhotoStatus status);
