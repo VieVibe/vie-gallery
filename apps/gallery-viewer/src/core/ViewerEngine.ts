@@ -170,7 +170,7 @@ export class ViewerEngine {
    * 初始化
    * @param slug 相册标识（可选），如果提供则从服务端加载配置
    */
-  async init(slug?: string, serverConfigSnapshot?: ViewerConfig | null, options: { applyLocalPreferences?: boolean } = {}): Promise<void> {
+  async init(slug?: string, serverConfigSnapshot?: ViewerConfig | null, options: { applyLocalPreferences?: boolean; allowUrlOverrides?: boolean } = {}): Promise<void> {
     if (this.disposed) return
     this.eventBus.emit('init')
 
@@ -190,7 +190,7 @@ export class ViewerEngine {
     }
 
     // 3. URL 参数覆盖（优先级最高）
-    const urlConfig = this.configManager.loadFromURL()
+    const urlConfig = options.allowUrlOverrides === false ? null : this.configManager.loadFromURL()
     if (urlConfig) {
       this.configManager.updateConfig(urlConfig)
     }
@@ -297,6 +297,7 @@ export class ViewerEngine {
     const budget = QUALITY_BUDGETS[this.effectiveQuality]
     if (!collection) return budget
     return { ...budget, maxEdge: this.effectiveQuality === 'low' ? 320 : 448,
+      concurrent: this.effectiveQuality === 'low' ? 4 : 6,
       resident: Math.max(budget.resident, COLLECTION_CHAPTER_SIZE) }
   }
 

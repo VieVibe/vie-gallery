@@ -4,6 +4,27 @@ import * as THREE from 'three'
 import { TexturePool, type LoadedTexture } from '../src/core/TexturePool'
 const budget = { maxEdge: 1, bytes: 100, concurrent: 2, resident: 4 }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve))
+test('reordering visible photos does not restart a thumbnail in flight', async () => {
+  const jobs: AbortSignal[] = []
+  const pool = new TexturePool({ ...budget, concurrent: 1, resident: 1 }, (_url, _edge, signal) => {
+    jobs.push(signal)
+    return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+  })
+  const a = {}, b = {}
+  const first = pool.acquire(a, ['first'], 0).catch(() => {})
+  const next = pool.acquire(b, ['next'], .5).catch(() => {})
+  await flush()
+  pool.touch(b, -.5)
+  await flush()
+  assert.equal(jobs.length, 1)
+  assert.equal(jobs[0].aborted, false)
+  pool.touch(a, Infinity)
+  await flush()
+  assert.equal(jobs[0].aborted, true)
+  assert.equal(jobs.length, 2)
+  pool.dispose()
+  await Promise.all([first, next])
+})
 test('pool shares URLs, limits concurrency, and releases stale completions exactly once', async () => {
   const jobs: Array<{ url: string; signal: AbortSignal; finish: (loaded: LoadedTexture) => void }> = []
   const pool = new TexturePool(budget, (url, _edge, signal) => new Promise(resolve => jobs.push({ url, signal, finish: resolve })))

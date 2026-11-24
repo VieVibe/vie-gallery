@@ -1,7 +1,20 @@
 import { expect, test } from '@playwright/test'
 import { mockGallery } from './helpers/mockGallery'
 
-test('a published spatial collection opens from its cover with three light scene choices', async ({ page }) => {
+test('a share link uses its published collection even with an alternate layout in the URL', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await mockGallery(page, { config: { layout: { mode: 'helix', params: { composition: 'curated', arrangement: 'space' } } } })
+  await page.goto('/g/effects-fixture?layout=grid#s=shared-fixture')
+  await expect(page.getByRole('button', { name: '查看当前作品' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '展示风格' })).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__?.snapshot().requested.layout.params?.arrangement)).toBe('space')
+  await page.goto('/g/effects-fixture?layout=grid')
+  await expect(page.getByRole('button', { name: '查看当前作品' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '展示风格' })).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__?.snapshot().requested.layout.params?.arrangement)).toBe('space')
+})
+
+test('a creator preview opens from its cover with three light scene choices', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const { errors } = await mockGallery(page, {
     count: 42,
@@ -13,7 +26,7 @@ test('a published spatial collection opens from its cover with three light scene
       visitorAllowDownload: true
     }
   })
-  await page.goto('/g/effects-fixture')
+  await page.goto('/g/effects-fixture?preview=creator-fixture')
   await page.getByRole('button', { name: '开始浏览' }).click()
   const dock = page.getByRole('navigation', { name: '展示风格' })
   await expect(dock.getByRole('button')).toHaveText(['潮汐', '折廊', '空间'])
@@ -39,7 +52,8 @@ test('a mobile collection advances in chapters and keeps the active work when ch
     count: 200,
     config: { layout: { mode: 'helix', params: { composition: 'curated', arrangement: 'fold' } } }
   })
-  await page.goto('/g/effects-fixture')
+  await page.goto('/g/effects-fixture?preview=creator-fixture')
+  await page.getByRole('button', { name: '开始浏览' }).click()
   const dock = page.getByRole('navigation', { name: '展示风格' })
   await expect(dock.getByRole('button', { name: '折廊' })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: /继续浏览.*150 张/ }).click()

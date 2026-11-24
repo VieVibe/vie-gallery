@@ -102,8 +102,12 @@ export class TexturePool {
       if (desired.size >= this.budget.resident || bytes + estimate > this.budget.bytes) continue
       desired.set(owner.entry, owner); bytes += estimate
     }
-    // In-flight work leaving the selected set is cancelled before another job starts.
-    for (const entry of [...this.entries.values()]) if (!desired.has(entry.id) && entry.state !== 'ready') this.evict(entry)
+    // A camera move can reorder visible photos while their requests are in flight.
+    for (const entry of [...this.entries.values()]) {
+      if (desired.has(entry.id) || entry.state === 'ready') continue
+      if (entry.state === 'loading' && Number.isFinite(priorities.get(entry.id))) continue
+      this.evict(entry)
+    }
     for (const [id, owner] of desired) {
       let entry = this.entries.get(id)
       if (!entry) {

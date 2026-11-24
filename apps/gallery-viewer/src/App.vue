@@ -4,6 +4,7 @@ import type * as Three from 'three'
 import { CURATED_STYLES, PHOTO_ARRANGEMENTS, SPATIAL_PALETTE, SPATIAL_PRESETS, applyCuratedStyle, applySpatialPreset, resolveCuratedStyle, resolvePhotoArrangement, resolveSpatialPreset, type CuratedStyle, type PhotoArrangement, type SpatialPreset, type ViewerConfig } from '@vie/gallery-contracts'
 import { isTrustedPreviewMessage, normalizeViewerConfig, serializeViewerConfig, ViewerConfigValidationError } from '@vie/gallery-contracts'
 import { useViewerState } from './composables/useViewerState'
+import { readShareToken } from './api/client'
 import { applyViewerSeo, clearViewerSeo } from './lib/seo'
 import { photoLabel } from './lib/photoTitle'
 import type { EngineMetrics, ViewerEngine } from './core/ViewerEngine'
@@ -61,6 +62,7 @@ const slug = location.pathname.split('/').filter(Boolean).pop() || ''
 const params = new URLSearchParams(location.search)
 const embeddedPreview = params.get('embed') === 'preview'
 const creatorPreview = params.has('preview')
+const hasShareToken = !!readShareToken()
 const liveWindowPreview = creatorPreview && params.get('live') === 'config' && !!window.opener
 
 // 状态机
@@ -163,6 +165,7 @@ const stagePhoto = computed(() => viewer.photos.value[currentPhotoIndex.value])
 const showPhotoDetails = computed(() => (stageActive.value && !theatre.value.active) || photoFocus.value)
 const sceneConfig = computed(() => viewer.viewerConfig.value)
 const collectionPreset = computed(() => sceneConfig.value ? resolveSpatialPreset(sceneConfig.value) : 'tide')
+const lockedShare = computed(() => hasShareToken || (!creatorPreview && !!collectionPreset.value))
 const styleChoices = computed(() => collectionPreset.value ? SPATIAL_PRESETS : CURATED_STYLES)
 const sceneStyle = computed<CSSProperties>(() => ({
   '--scene-color': collectionPreset.value ? SPATIAL_PALETTE.color : sceneConfig.value?.background?.color ?? '#111a17',
@@ -202,7 +205,7 @@ const selectedStyle = ref<CuratedStyle>()
 const styleBusy = ref(false)
 async function selectStyle(mode: CuratedStyle | SpatialPreset) {
   const active = engine
-  if (!active || styleBusy.value || mode === (collectionPreset.value ?? selectedStyle.value)) return
+  if (lockedShare.value || !active || styleBusy.value || mode === (collectionPreset.value ?? selectedStyle.value)) return
   styleBusy.value = true
   try {
     const current = active.getRequestedConfig()
@@ -451,7 +454,7 @@ async function init3DEngine() {
       const initialConfig = isEmbedPreview()
         ? viewer.viewerConfig.value
         : viewer.state.value === 'ready' || viewer.state.value === 'empty' ? viewer.viewerConfig.value : undefined
-      await activeEngine.init(slug, initialConfig, { applyLocalPreferences: !creatorPreview })
+      await activeEngine.init(slug, initialConfig, { applyLocalPreferences: !creatorPreview, allowUrlOverrides: !lockedShare.value })
     } catch (err) {
       if (!isEmbedPreview() || viewer.viewerConfig.value) throw err
       await activeEngine.init()
@@ -499,7 +502,7 @@ async function init3DEngine() {
     activeEngine.start()
     // A temporary viewing pose brings the first work forward without rewriting the
     // published geometry, atmosphere or any creator preview. Exit restores that scene.
-    if (!creatorPreview && !stageActive.value && scenePhotoCount > 0) {
+    if (!lockedShare.value && !creatorPreview && !stageActive.value && scenePhotoCount > 0) {
       await activeEngine.theatreCommand({ type: 'mode', mode: 'focus' })
       if (initVersion !== engineInitVersion) return
     }
@@ -789,6 +792,7 @@ async function loadNextStageChapter() {
 function markAlbumReady() {
   if (viewMode.value === '2d' && !performance.getEntriesByName('viewer:first-photo-rendered').length) {
     performance.mark('viewer:first-photo-rendered')
+    if (collectionPreset.value) void loadViewer3dModules().catch(() => {})
   }
 }
 
@@ -909,7 +913,7 @@ function resetView() {
             <span>{{ viewMode === '3d' ? '平面展览' : '空间漫游' }}</span>
           </button>
           <button v-if="show3dHud && !theatre.active && !theatre.reducedMotion" type="button" class="quiet-button tour-button" :aria-label="isAutoTour ? '暂停漫游' : '自动漫游'" :aria-pressed="isAutoTour" @click="toggleAutoTour"><Icon :name="isAutoTour ? 'pause' : 'play'" :size="15" /><span>{{ isAutoTour ? '暂停漫游' : '自动漫游' }}</span></button>
-          <button v-if="show3dHud && stageActive && !collectionPreset && !theatre.active && !theatre.reducedMotion" type="button" class="quiet-button choreography-button" aria-label="播放照片编排" :disabled="theatreBusy" @click="sendTheatreCommand({ type: 'play' })"><Icon name="grid" :size="15" /><span>编排演出</span></button>
+          <button v-if="!lockedShare && show3dHud && stageActive && !collectionPreset && !theatre.active && !theatre.reducedMotion" type="button" class="quiet-button choreography-button" aria-label="播放照片编排" :disabled="theatreBusy" @click="sendTheatreCommand({ type: 'play' })"><Icon name="grid" :size="15" /><span>编排演出</span></button>
           <button v-if="show3dHud && stageActive && !theatre.active" ref="immersiveButton" type="button" class="quiet-button immersive-button" aria-label="沉浸欣赏" :aria-pressed="isImmersive" @click="setImmersive(true)"><Icon name="eye" :size="17" /></button>
           <button v-if="fullscreenAvailable && (viewMode === '3d' || isFullscreen)" type="button" class="quiet-button fullscreen-button" :aria-label="isFullscreen ? '退出全屏' : '全屏欣赏'" :aria-pressed="isFullscreen" @click="toggleFullscreen"><Icon name="maximize" :size="17" /></button>
           <button type="button" class="exhibition-share" aria-label="分享" @click="showShareSheet = true"><Icon name="share" :size="15" /><span>分享</span></button>
@@ -931,7 +935,7 @@ function resetView() {
         <button type="button" aria-label="下一张作品" :disabled="viewer.photos.value.length < 2" @click="stepStage(1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6M3 12h13"/></svg></button>
       </div>
       </div>
-      <div v-if="!theatre.active || photoFocus" class="spatial-style-row">
+      <div v-if="!lockedShare && (!theatre.active || photoFocus)" class="spatial-style-row">
       <nav class="composition-dock" aria-label="展示风格">
         <button v-for="style in styleChoices" :key="style.id" type="button" :aria-pressed="(collectionPreset ?? selectedStyle) === style.id" :disabled="styleBusy" @click="selectStyle(style.id)">
           <svg viewBox="0 0 44 24" aria-hidden="true"><path v-if="style.id === 'helix'" d="M4 19C3 1 39 1 39 8S4 24 4 16S38 9 40 4"/><ellipse v-else-if="style.id === 'carousel'" cx="22" cy="12" rx="18" ry="8"/><path v-else-if="style.id === 'space'" d="M2 12a20 9 0 1 0 40 0 20 9 0 1 0-40 0m12 0a8 4 0 1 0 16 0 8 4 0 1 0-16 0M7 6l8 4m14 4 8 4"/><path v-else-if="style.id === 'filmstrip'" d="M2 7h9v10H2zM16 3h12v18H16zM33 7h9v10h-9z"/><path v-else-if="style.id === 'book'" d="M22 6Q12 1 3 5v16q10-4 19 0 9-4 19 0V5q-9-4-19 1v15M22 6q10-7 14-4v14q-8 0-14 5"/><path v-else-if="style.id === 'tunnel' || style.id === 'fold'" d="m2 2 40 20M2 22 42 2M10 4h24v16H10zM17 8h10v8H17z"/><path v-else d="M2 12Q12 -2 22 12T42 12M2 20Q12 6 22 20T42 20"/></svg>

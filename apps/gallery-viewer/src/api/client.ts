@@ -116,7 +116,7 @@ async function parseJsonResponse<T>(response: Response, secrets: readonly string
   return parsed as T
 }
 
-function readShareToken() {
+export function readShareToken() {
   const params = new URLSearchParams(window.location.search)
   const queryToken = params.get('t') || params.get('token')
   if (queryToken) return queryToken

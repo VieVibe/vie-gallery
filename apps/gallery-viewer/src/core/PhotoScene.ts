@@ -148,7 +148,9 @@ export class PhotoScene {
       // Reserve [0, 1) for thumbnails and [1, 2) for full textures. A nearby
       // upgrade must not occupy the download slots needed by other visible photos.
       const distance = this.position.distanceToSquared(camera.position)
-      const priority = visible ? distance / (1 + distance) : Infinity
+      const priority = !visible ? Infinity : this.flatCards
+        ? Math.min(.99, this.position.project(camera).length() / 2)
+        : distance / (1 + distance)
       const highOwner = this.highTextureOwners.get(photo)
       this.pool.touch(photo, highOwner && this.highTextureReady.has(photo) ? Infinity : priority)
       if (highOwner) this.pool.touch(highOwner, priority + 1)
