@@ -4,6 +4,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import { galleryMediaUrl } from '@vie/gallery-contracts'
 import type { Gallery } from '@vie/gallery-contracts'
 import { apiFetch } from '../api'
+import { spaceRequest, type PrivateSpaceAccess } from '../lib/privateSpace'
 import { useToast } from '../composables/useToast'
 import { useAuth } from '../composables/useAuth'
 import Icon from '../components/Icon.vue'
@@ -242,6 +243,11 @@ watch(currentUser, async (user, previous) => {
     closeMenus()
   }
   if (user) {
+    try {
+      const access = await spaceRequest<PrivateSpaceAccess>('/access')
+      if (currentUser.value !== user) return
+      if (access.allowed) { await router.replace({ name: 'private-space' }); return }
+    } catch { /* The optional private space must not block the existing gallery. */ }
     loadGalleries()
   } else {
     galleryRequestVersion++

@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test:admin:unit": "node scripts/test-viewer-unit.mjs apps/gallery-admin/test/api.test.ts",
+    "test:admin:unit": "node scripts/test-viewer-unit.mjs apps/gallery-admin/test/api.test.ts apps/gallery-admin/test/privateSpaceIntegrity.test.ts",
     "test:viewer:unit": "node scripts/test-viewer-unit.mjs",
     "dev:admin": "npm --workspace apps/gallery-admin run dev",
     "dev:viewer": "npm --workspace apps/gallery-viewer run dev",

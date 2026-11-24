@@ -79,7 +79,7 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {},
   const headers = new Headers(init.headers ?? request?.headers)
   const workspaceId = getActiveWorkspaceId()
   const pathname = new URL(request?.url ?? input.toString(), 'http://gallery.local').pathname
-  const workspaceScoped = !pathname.startsWith('/api/auth/') && pathname !== '/api/me/workspaces'
+  const workspaceScoped = !pathname.startsWith('/api/auth/') && !pathname.startsWith('/api/private-space/') && pathname !== '/api/me/workspaces'
   if (workspaceId && workspaceScoped && !headers.has('X-Workspace-Id')) headers.set('X-Workspace-Id', workspaceId)
   const isMutating = !['GET', 'HEAD', 'OPTIONS'].includes(method)
   if (isMutating) headers.set('X-XSRF-TOKEN', await csrfToken())

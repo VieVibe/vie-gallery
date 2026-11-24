@@ -167,6 +167,7 @@ bash test-mcp-flow.sh
 
 ## 文档入口
 
+- [临时私人空间：原件无损保存、专用账号、启用与导出核验](docs/private-space.md)
 
 ### 当前开发
 - **[V1 后一个月任务路线图](docs/v1-post-one-month-roadmap.md)**：当前执行规划（2026-09-17 至 2026-10-17）

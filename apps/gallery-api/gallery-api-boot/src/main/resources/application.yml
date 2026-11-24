@@ -44,6 +44,15 @@ management:
         enabled: true
 
 gallery:
+  private-space:
+    enabled: ${PRIVATE_SPACE_ENABLED:false}
+    user-id: ${PRIVATE_SPACE_USER_ID:}
+    endpoint: ${PRIVATE_SPACE_OSS_ENDPOINT:https://oss-cn-chengdu.aliyuncs.com}
+    access-key-id: ${PRIVATE_SPACE_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${PRIVATE_SPACE_OSS_ACCESS_KEY_SECRET:}
+    bucket: ${PRIVATE_SPACE_OSS_BUCKET:}
+    quota-bytes: ${PRIVATE_SPACE_QUOTA_BYTES:34359738368}
+    max-file-bytes: ${PRIVATE_SPACE_MAX_FILE_BYTES:536870912}
   storage:
     endpoint: ${STORAGE_ENDPOINT:http://localhost:9000}
     public-endpoint: ${STORAGE_PUBLIC_ENDPOINT:http://localhost:9000}
