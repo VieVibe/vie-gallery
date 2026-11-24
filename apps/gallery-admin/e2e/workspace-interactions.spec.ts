@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test'
 const galleryId = '33333333-3333-4333-8333-333333333333'
 const portrait = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="2400"><rect width="800" height="2400" fill="#c2d7cb"/></svg>')}`
 
-async function mockWorkspace(page: Page) {
+async function mockWorkspace(page: Page, beforeOpen?: (page: Page) => Promise<void>) {
   const photos = [
     { id: 'photo-one', title: '第一张作品', status: 'READY', thumbnailUrl: portrait },
     { id: 'photo-two', title: '第二张作品', status: 'READY', thumbnailUrl: portrait },
@@ -32,10 +32,46 @@ async function mockWorkspace(page: Page) {
     if (path.endsWith('/publish-readiness')) return route.fulfill({ json: { galleryStatus: 'DRAFT', readyPhotoCount: 3, galleryPublishable: true, configDraftChanged: false, blockers: [] } })
     return route.fulfill({ json: {} })
   })
+  await beforeOpen?.(page)
   await page.goto(`/app/galleries/${galleryId}`)
   await expect(page.locator('.photo-card')).toHaveCount(4)
   return { orders }
 }
+
+test('retry refreshes the task queue even when an older read is still pending', async ({ page }) => {
+  let readCount = 0
+  let retried = false
+  let releaseOlderRead!: () => void
+  const olderRead = new Promise<void>(resolve => { releaseOlderRead = resolve })
+  await mockWorkspace(page, async page => {
+    await page.route('**/api/galleries/*/photo-tasks?**', async route => {
+      const queued = retried
+      if (++readCount === 2) await olderRead
+      return route.fulfill({ json: {
+        items: [{ id: 'task-one', filename: '失败照片.jpg', status: queued ? 'QUEUED' : 'FAILED', attempts: 1, maxAttempts: 3 }]
+      } })
+    })
+    await page.route('**/api/photos/tasks/task-one/retry', async route => {
+      retried = true
+      await route.fulfill({ json: { id: 'task-one', status: 'QUEUED' } })
+    })
+  })
+  const panel = page.locator('.task-panel')
+  const disclosure = page.getByText('上传进度与记录', { exact: true })
+  if (!(await panel.isVisible())) await disclosure.click()
+  await panel.getByText('失败照片.jpg', { exact: true }).waitFor()
+  await panel.getByTitle('刷新任务列表').click()
+  await expect.poll(() => readCount).toBe(2)
+  try {
+    const retryResponse = page.waitForResponse(response => response.url().endsWith('/task-one/retry'))
+    await panel.getByTitle('重试任务').click()
+    await retryResponse
+    await page.evaluate(() => new Promise(requestAnimationFrame))
+  } finally {
+    releaseOlderRead()
+  }
+  await expect(panel.getByRole('heading', { name: '排队中 · 1' })).toBeVisible({ timeout: 2500 })
+})
 
 test('keyboard help traps focus, pauses workspace shortcuts and restores the trigger', async ({ page }) => {
   await mockWorkspace(page)

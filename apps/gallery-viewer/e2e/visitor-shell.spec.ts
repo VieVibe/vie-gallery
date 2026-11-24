@@ -62,9 +62,17 @@ test('password entry has labels, preserves retry feedback and opens the gallery'
   await page.route('**/api/public/g/effects-fixture', route => route.fulfill({ json: {
     slug: 'effects-fixture', title: '山川来信', visibility: 'PASSWORD', accessState: unlocked ? 'READY' : 'PASSWORD_REQUIRED', cover: null, photoCount: 12,
   } }))
-  await page.route('**/api/public/g/effects-fixture/unlock', route => {
+  await page.route('**/api/auth/csrf', route => route.fulfill({
+    headers: { 'Set-Cookie': 'XSRF-TOKEN=visitor-csrf; Path=/' },
+    json: { headerName: 'X-XSRF-TOKEN', token: 'visitor-csrf' }
+  }))
+  await page.route('**/api/public/g/effects-fixture/unlock', async route => {
+    const headers = await route.request().allHeaders()
+    if (headers['x-xsrf-token'] !== 'visitor-csrf' || !headers.cookie?.includes('XSRF-TOKEN=visitor-csrf')) {
+      return route.fulfill({ status: 403, json: { code: 'CSRF_INVALID' } })
+    }
     unlocked = route.request().postDataJSON().password === 'correct'
-    return unlocked ? route.fulfill({ json: { unlocked: true } }) : route.fulfill({ status: 401, json: { code: 'PASSWORD_INVALID' } })
+    return unlocked ? route.fulfill({ json: { unlocked: true } }) : route.fulfill({ status: 403, json: { code: 'PASSWORD_INVALID' } })
   })
   await page.goto('/g/effects-fixture')
   await expect(page.getByRole('heading', { name: '山川来信' })).toBeVisible()

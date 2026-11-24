@@ -208,14 +208,14 @@ export function useUploadTasks(
     if (task.status !== 'FAILED' || !task.retryable) return
     const response = await apiFetch(`/api/photos/tasks/${encodeURIComponent(task.id)}/retry`, { method: 'POST' })
     if (!response.ok) throw await responseError(response, '任务重试失败，请稍后重试。')
-    await load(true)
+    await load(true, true)
   }
 
   async function cancel(task: UploadTask) {
     if (!['QUEUED', 'PROCESSING'].includes(task.status)) return
     const response = await apiFetch(`/api/photos/tasks/${encodeURIComponent(task.id)}/cancel`, { method: 'POST' })
     if (!response.ok) throw await responseError(response, '取消任务失败，请稍后重试。')
-    await load(true)
+    await load(true, true)
   }
 
   function handleVisibilityChange() {

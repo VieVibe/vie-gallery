@@ -179,14 +179,19 @@ export class PublicApiClient {
   }
 
   async unlock(slug: string, password: string): Promise<UnlockResponse> {
+    const csrf = await this.fetch('/api/auth/csrf', { credentials: 'include', cache: 'no-store' })
+    if (!csrf.ok) throw await parseApiError(csrf, this.secrets())
+    const { token } = await parseJsonResponse<{ token?: string }>(csrf, this.secrets())
+    if (typeof token !== 'string' || !token) throw new PublicApiError('CSRF_INVALID', '无法获取解锁校验信息', 403)
     const response = await this.fetch(`${this.baseUrl}/g/${encodeURIComponent(slug)}/unlock`, {
       method: 'POST',
-      headers: this.headers('application/json'),
+      headers: { ...this.headers('application/json'), 'X-XSRF-TOKEN': token },
       body: JSON.stringify({ password }),
       credentials: 'include'
     })
-    if (!response.ok) throw await parseApiError(response, [password, ...(this.shareToken ? [this.shareToken] : [])])
-    return parseJsonResponse<UnlockResponse>(response, this.shareToken ? [this.shareToken] : [])
+    const secrets = [password, token, ...this.secrets()]
+    if (!response.ok) throw await parseApiError(response, secrets)
+    return parseJsonResponse<UnlockResponse>(response, secrets)
   }
 
   async getPhotos(slug: string, page: number = 0, pageSize: number = 50): Promise<PublicPhotoPage> {
@@ -252,7 +257,9 @@ export class PublicApiError extends Error implements ApiError {
   get isNotFound() { return this.code === 'GALLERY_NOT_FOUND' || this.status === 404 }
   get isPasswordRequired() { return this.code === 'PASSWORD_REQUIRED' }
   get isPasswordInvalid() { return this.code === 'PASSWORD_INVALID' }
-  get isShareLinkRequired() { return this.code === 'SHARE_LINK_REQUIRED' }
+  get isShareLinkRejected() {
+    return ['SHARE_LINK_REQUIRED', 'SHARE_LINK_INVALID', 'SHARE_LINK_EXPIRED', 'SHARE_LINK_REVOKED'].includes(this.code)
+  }
   get isSessionExpired() { return this.code === 'PUBLIC_SESSION_EXPIRED' }
   get isRateLimited() { return this.code === 'RATE_LIMITED' || this.status === 429 }
 }

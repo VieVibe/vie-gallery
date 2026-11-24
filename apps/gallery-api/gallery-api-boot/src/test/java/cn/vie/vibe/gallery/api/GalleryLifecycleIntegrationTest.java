@@ -5,7 +5,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
 
-import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -15,35 +14,39 @@ public class GalleryLifecycleIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private TestRestTemplate restTemplate;
 
-    @Test
-    void testCompleteGalleryLifecycle() {
-        String email = "creator-" + System.currentTimeMillis() + "@example.com";
-        String password = "Password123456";
-
-        // 1. Register
+    private HttpHeaders register(String email, String displayName) {
+        var csrf = restTemplate.getForEntity("/api/auth/csrf", Map.class);
+        assertEquals(HttpStatus.OK, csrf.getStatusCode());
+        assertNotNull(csrf.getBody());
+        String csrfCookie = cookie(csrf.getHeaders(), "XSRF-TOKEN=");
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set(HttpHeaders.COOKIE, csrfCookie);
+        headers.set("X-XSRF-TOKEN", (String) csrf.getBody().get("token"));
         HttpEntity<Map<String, String>> registerEntity = new HttpEntity<>(Map.of(
                 "email", email,
-                "displayName", "Creator Test",
-                "password", password
+                "displayName", displayName,
+                "password", "Password123456"
         ), headers);
 
         ResponseEntity<Map> registerResp = restTemplate.postForEntity("/api/auth/register", registerEntity, Map.class);
         assertEquals(HttpStatus.CREATED, registerResp.getStatusCode());
+        String sessionCookie = cookie(registerResp.getHeaders(), "VIE_SESSION=", "SESSION=", "JSESSIONID=");
+        headers.set(HttpHeaders.COOKIE, csrfCookie + "; " + sessionCookie);
+        return headers;
+    }
 
-        // Extract session cookie
-        List<String> cookies = registerResp.getHeaders().get(HttpHeaders.SET_COOKIE);
-        assertNotNull(cookies);
-        String sessionCookie = cookies.stream()
-                .filter(c -> c.startsWith("VIE_SESSION=") || c.startsWith("SESSION=") || c.startsWith("JSESSIONID="))
-                .findFirst().orElse("");
+    private static String cookie(HttpHeaders headers, String... prefixes) {
+        return headers.getOrEmpty(HttpHeaders.SET_COOKIE).stream()
+                .filter(entry -> java.util.Arrays.stream(prefixes).anyMatch(entry::startsWith))
+                .map(entry -> entry.split(";", 2)[0])
+                .findFirst().orElseThrow();
+    }
 
-        HttpHeaders authHeaders = new HttpHeaders();
-        authHeaders.setContentType(MediaType.APPLICATION_JSON);
-        if (!sessionCookie.isEmpty()) {
-            authHeaders.add(HttpHeaders.COOKIE, sessionCookie);
-        }
+    @Test
+    void testCompleteGalleryLifecycle() {
+        String email = "creator-" + System.currentTimeMillis() + "@example.com";
+        HttpHeaders authHeaders = register(email, "Creator Test");
 
         // 2. Create Gallery
         String slug = "travel-" + System.currentTimeMillis();
@@ -96,24 +99,7 @@ public class GalleryLifecycleIntegrationTest extends AbstractIntegrationTest {
     @Test
     void publishReadinessBlocksWithoutReadyPhotos() {
         String email = "blocked-" + System.currentTimeMillis() + "@example.com";
-        String password = "Password123456";
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        ResponseEntity<Map> registerResp = restTemplate.postForEntity("/api/auth/register",
-                new HttpEntity<>(Map.of("email", email, "displayName", "Blocked Test", "password", password), headers),
-                Map.class);
-        assertEquals(HttpStatus.CREATED, registerResp.getStatusCode());
-
-        List<String> cookies = registerResp.getHeaders().get(HttpHeaders.SET_COOKIE);
-        HttpHeaders authHeaders = new HttpHeaders();
-        authHeaders.setContentType(MediaType.APPLICATION_JSON);
-        if (cookies != null) {
-            cookies.stream()
-                    .filter(c -> c.startsWith("VIE_SESSION=") || c.startsWith("SESSION=") || c.startsWith("JSESSIONID="))
-                    .findFirst()
-                    .ifPresent(cookie -> authHeaders.add(HttpHeaders.COOKIE, cookie));
-        }
+        HttpHeaders authHeaders = register(email, "Blocked Test");
 
         String slug = "blocked-" + System.currentTimeMillis();
         ResponseEntity<GalleryController.GalleryResponse> createResp = restTemplate.exchange(

@@ -1,12 +1,10 @@
 package cn.vie.vibe.gallery.api;
 
-import cn.vie.vibe.gallery.GalleryApiApplication;
 import cn.vie.vibe.gallery.application.ViewerConfigVersionRepository;
 import cn.vie.vibe.gallery.application.GalleryViewerConfigRepository;
 import cn.vie.vibe.gallery.domain.GalleryViewerConfig;
 import cn.vie.vibe.gallery.domain.ViewerConfigVersion;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -19,7 +17,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@SpringBootTest(classes = GalleryApiApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ViewerConfigVersionRepositoryIntegrationTest extends AbstractIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired ViewerConfigVersionRepository versions;
@@ -75,6 +72,7 @@ class ViewerConfigVersionRepositoryIntegrationTest extends AbstractIntegrationTe
         ViewerConfigVersion second = transaction.execute(status -> publish(tenantId, galleryId, "second"));
         assertEquals(1L, first.versionNumber());
         assertEquals(2L, second.versionNumber());
+        Instant originalCreatedAt = versions.findById(tenantId, galleryId, second.id()).orElseThrow().createdAt();
 
         transaction.executeWithoutResult(status -> {
             assertEquals(1, versions.softDelete(tenantId, galleryId, first.id(), Instant.now(), null));
@@ -90,7 +88,7 @@ class ViewerConfigVersionRepositoryIntegrationTest extends AbstractIntegrationTe
         assertEquals("renamed", edited.title());
         assertEquals("note", edited.note());
         assertEquals(second.configJson(), edited.configJson());
-        assertEquals(second.createdAt(), edited.createdAt());
+        assertEquals(originalCreatedAt, edited.createdAt());
         assertEquals(1L, versions.countByGallery(tenantId, galleryId));
     }
 

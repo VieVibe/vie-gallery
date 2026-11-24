@@ -1,16 +1,27 @@
 package cn.vie.vibe.gallery.api;
 
+import cn.vie.vibe.gallery.GalleryApiApplication;
+import cn.vie.vibe.gallery.application.ObjectStoragePort;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = GalleryApiApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {
+                "gallery.security.encryption.secret=integration-test-encryption-secret",
+                "gallery.security.encryption.salt=0123456789abcdef",
+                "gallery.security.jwt.secret=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        })
 public abstract class AbstractIntegrationTest {
+
+    @MockBean
+    ObjectStoragePort objectStorage;
 
     static MySQLContainer<?> MYSQL;
     static GenericContainer<?> REDIS;

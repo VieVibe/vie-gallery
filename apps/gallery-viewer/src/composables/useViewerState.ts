@@ -17,10 +17,11 @@ function markStartupStage(stage: string) {
 }
 
 function userMessage(error: PublicApiError, fallback: string) {
-  if (error.isNotFound) return '找不到这个相册空间，可能已被移除或链接有误。'
   if (error.isPasswordInvalid) return '密码不正确，请重新输入。'
   if (error.isSessionExpired) return '访问会话已过期，请重新输入密码。'
-  if (error.isShareLinkRequired || error.status === 403) return '此空间需要有效的分享链接才能访问。'
+  if (error.code === 'CSRF_INVALID') return '解锁校验暂未完成，请重试。'
+  if (error.isShareLinkRejected || error.status === 403) return '此空间需要有效的分享链接才能访问。'
+  if (error.isNotFound) return '找不到这个相册空间，可能已被移除或链接有误。'
   if (error.isRateLimited) return '尝试次数过多，请稍后再试。'
   if (error.isNetworkError) return '网络连接异常，请检查网络后重试。'
   if (error.status === 400 || error.status === 422) return '请求参数有误，请稍后重试。'
@@ -98,7 +99,7 @@ export function useViewerState(slug: string, options: { isPreviewEmbed?: () => b
     } catch (cause) {
       markStartupStage('config-ready')
       if (version !== requestVersion) return null
-      if (configSnapshot !== undefined && !(cause instanceof PublicApiError && (cause.isSessionExpired || cause.isPasswordRequired || cause.status === 403))) {
+      if (configSnapshot !== undefined && !(cause instanceof PublicApiError && (cause.isSessionExpired || cause.isPasswordRequired || cause.isShareLinkRejected || cause.status === 403))) {
         return structuredClone(configSnapshot)
       }
       // Only a successful empty response means the gallery has no authored
@@ -237,7 +238,7 @@ export function useViewerState(slug: string, options: { isPreviewEmbed?: () => b
       if (version !== requestVersion) return
       // Loading another page must not replace an already usable gallery with a
       // full-screen error. Keep the ready state and expose a retryable message.
-      if (cause instanceof PublicApiError && (cause.isSessionExpired || cause.isPasswordRequired || cause.status === 403)) {
+      if (cause instanceof PublicApiError && (cause.isSessionExpired || cause.isPasswordRequired || cause.isShareLinkRejected || cause.status === 403)) {
         requestVersion++; clearAccess(); handleError(cause, '访问已失效，请重新解锁。'); return
       }
       if (cause instanceof PublicApiError) {
@@ -258,11 +259,14 @@ export function useViewerState(slug: string, options: { isPreviewEmbed?: () => b
         error.value = userMessage(cause, fallback)
         return
       }
-      if (preservePasswordPrompt && (cause.isPasswordInvalid || cause.status === 401 || cause.status === 403)) {
+      if (cause.isShareLinkRejected) {
+        clearAccess()
+        state.value = 'share_required'
+      } else if (preservePasswordPrompt && (cause.isPasswordInvalid || cause.status === 401 || cause.status === 403)) {
         state.value = 'password_prompt'
       } else if (cause.isNotFound) {
         state.value = 'not_found'
-      } else if (cause.isShareLinkRequired || cause.status === 403) {
+      } else if (cause.status === 403) {
         state.value = 'share_required'
       } else {
         state.value = 'error'

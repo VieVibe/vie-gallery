@@ -86,6 +86,7 @@ test('unlock reloads current configuration and expiry revokes photos and downloa
   let unlocked = false, expired = false, configurations = 0
   globalThis.fetch = async url => {
     const path = String(url)
+    if (path === '/api/auth/csrf') return Response.json({ token: 'fixture-csrf' })
     if (path.endsWith('/unlock')) { unlocked = true; return Response.json({ unlocked: true }) }
     if (path.includes('/photos')) return expired ? Response.json({ code: 'PUBLIC_SESSION_EXPIRED' }, { status: 401 }) : Response.json({ items: [{ title: 'private', width: 100, height: 100, thumbnailUrl: null, sortOrder: 0 }], page: 0, pageSize: 1, total: 2 })
     if (path.endsWith('/viewer-config')) { configurations++; return Response.json({ configJson: JSON.stringify({ visitorAllowDownload: true }) }) }
@@ -109,6 +110,7 @@ for (const firstLoad of ['initialize', 'unlock'] as const) test(`late EMPTY ${fi
   let finish!: (response: Response) => void, galleryRequests = 0, configRequests = 0
   globalThis.fetch = async url => {
     const path = String(url)
+    if (path === '/api/auth/csrf') return Response.json({ token: 'fixture-csrf' })
     if (path.endsWith('/unlock')) return Response.json({ unlocked: true })
     if (path.endsWith('/viewer-config')) return ++configRequests === 1
       ? new Promise<Response>(resolve => finish = resolve)
@@ -162,6 +164,7 @@ test('preview session expiry and unlock preserve the latest successfully applied
   let expired = false, configs = 0
   globalThis.fetch = async url => {
     const path = String(url)
+    if (path === '/api/auth/csrf') return Response.json({ token: 'fixture-csrf' })
     if (path.endsWith('/unlock')) { expired = false; return Response.json({ unlocked: true }) }
     if (path.endsWith('/viewer-config')) { configs++; return Response.json({ configJson: '{}' }) }
     if (path.includes('/photos')) return expired

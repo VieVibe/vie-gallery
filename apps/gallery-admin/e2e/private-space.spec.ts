@@ -114,6 +114,19 @@ test('CR3 downloads include the matching XMP sidecar', async ({ page }) => {
   expect(mock.exportIds()).toEqual([cr3.id, xmp.id])
 })
 
+test('CR3 download never pairs with an XMP from a differently capitalized folder', async ({ page }) => {
+  const rawPhoto = { ...cr3, path: 'Travel/IMG_0001.CR3' }
+  const wrongFolder = { ...xmp, path: 'travel/IMG_0001.XMP' }
+  const matchingSidecar = { ...xmp, id: jpg.id, path: 'Travel/IMG_0001.XMP' }
+  const mock = await mockSpace(page, { files: [wrongFolder, rawPhoto, matchingSidecar] })
+  await page.goto('/app/private-space')
+  await page.getByRole('button', { name: 'Travel', exact: true }).click()
+  const saved = page.waitForEvent('download')
+  await page.locator('.file-row').filter({ hasText: 'IMG_0001.CR3' }).getByRole('button', { name: '下载原件', exact: true }).click()
+  await saved
+  expect(mock.exportIds()).toEqual([rawPhoto.id, matchingSidecar.id])
+})
+
 test('other accounts cannot request private file data through the page', async ({ page }) => {
   const mock = await mockSpace(page, { allowed: false })
   await page.goto('/app/private-space')

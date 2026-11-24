@@ -124,3 +124,18 @@ test('the enlarged photo reader continues across the next page of an album', asy
   await expect(dialog).toHaveAccessibleName('Sample 51')
   await expect(dialog.getByRole('button', { name: '下一张' })).toBeDisabled()
 })
+
+test('an expired private link during pagination returns to the share-link prompt', async ({ page }) => {
+  await mockGallery(page, { count: 51, defaultView: true })
+  await page.route('**/api/public/g/effects-fixture', route => route.fulfill({ json: {
+    slug: 'effects-fixture', title: '私人相册', visibility: 'PRIVATE', accessState: 'READY', photoCount: 51
+  } }))
+  await page.route('**/api/public/g/effects-fixture/photos?**', route => {
+    if (new URL(route.request().url()).searchParams.get('page') === '0') return route.fallback()
+    return route.fulfill({ status: 404, json: { code: 'SHARE_LINK_EXPIRED' } })
+  })
+  await page.goto('/g/effects-fixture#s=shared-fixture')
+  await page.getByRole('button', { name: '加载更多 · 还有 1 张', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '请使用分享链接进入' })).toBeVisible({ timeout: 2500 })
+  await expect(page.getByRole('button', { name: '查看照片 1：Sample 1' })).toHaveCount(0)
+})

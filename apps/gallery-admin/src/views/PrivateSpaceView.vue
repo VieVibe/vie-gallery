@@ -108,7 +108,9 @@ function withSidecars(items: PrivateFile[]) {
   const ids = new Set(items.map(file => file.id))
   for (const file of items) {
     if (!/\.cr3$/i.test(file.path)) continue
-    const sidecar = files.value.find(other => other.path.toLowerCase() === file.path.replace(/\.cr3$/i, '.xmp').toLowerCase())
+    const sidecarPath = file.path.replace(/\.cr3$/i, '.xmp')
+    const sidecar = files.value.find(other => other.path === sidecarPath)
+      ?? files.value.find(other => other.path.replace(/\.xmp$/i, '.xmp') === sidecarPath)
     if (sidecar) ids.add(sidecar.id)
   }
   return [...ids]
