@@ -37,7 +37,9 @@ onMounted(load)
           <span v-for="i in 8" :key="i" class="mini-photo" :style="{
             '--step': Math.floor((i - 1) / 2), '--side': i % 2 ? -1 : 1,
             '--col': (i - 1) % 4 - 1.5, '--row': i > 4 ? .5 : -.5,
-            '--orbit-x': Math.cos(i * Math.PI / 4), '--orbit-y': Math.sin(i * Math.PI / 4)
+            '--orbit-x': Math.cos(i * Math.PI / 4), '--orbit-y': Math.sin(i * Math.PI / 4),
+            '--dragon-x': [2.4, 1.62, 1.80, .58, -.30, -1.12, -1.83, -2.46][i - 1],
+            '--dragon-y': [-26, -37, -8, 9, 22, 8, -12, -9][i - 1] + 'px'
           }"><img v-if="photos[(i - 1) % Math.max(1, photos.length)]?.thumbnailUrl" :src="photos[(i - 1) % photos.length]?.thumbnailUrl || ''" alt="" /></span>
         </span>
         <span class="style-name">{{ style.label }} <span v-if="loaded && selected === style.id" class="style-check"><Icon name="check" :size="12" /></span></span>
@@ -187,6 +189,15 @@ onMounted(load)
 .fans .mini-photo {
   transform: translate(calc(-50% + var(--side) * var(--orbit-radius) * .58), -16%)
     rotate(calc((var(--step) - 1.5) * 23deg)) translateY(-23px) translateZ(calc(var(--step) * 3px));
+}
+
+.dragon .style-miniature { background: linear-gradient(#eaf4ef, #b8d3c9); }
+.dragon .mini-photo {
+  width: clamp(15px, 3vw, 32px);
+  height: auto;
+  aspect-ratio: 4 / 3;
+  transform: translate(calc(-50% + var(--dragon-x) * var(--tile-step) * .8), calc(-50% + var(--dragon-y)))
+    rotate(calc(var(--orbit-y) * 13deg));
 }
 
 .style-name {

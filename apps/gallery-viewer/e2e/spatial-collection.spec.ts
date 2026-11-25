@@ -36,7 +36,7 @@ test('a share link uses its published collection even with an alternate layout i
 test('a creator preview opens from its cover and can switch to each choreography', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const { errors } = await mockGallery(page, {
-    count: 42,
+    count: 60,
     defaultView: true,
     config: {
       layout: { mode: 'grid', params: { composition: 'curated', arrangement: 'tide' } },
@@ -48,13 +48,15 @@ test('a creator preview opens from its cover and can switch to each choreography
   await page.goto('/g/effects-fixture?preview=creator-fixture')
   await page.getByRole('button', { name: '开始浏览' }).click()
   const dock = page.getByRole('navigation', { name: '展示风格' })
-  await expect(dock.getByRole('button')).toHaveText(['潮汐', '折廊', '空间', '破阵重组', '连锁翻面', '双扇开合'])
+  await expect(dock.getByRole('button')).toHaveText(['潮汐', '折廊', '空间', '破阵重组', '连锁翻面', '双扇开合', '照片龙'])
+  const dockRows = () => dock.getByRole('button').evaluateAll(buttons => new Set(buttons.map(button => button.getBoundingClientRect().top)).size)
+  expect(await dockRows()).toBe(1)
   await expect(dock.getByRole('button', { name: '潮汐' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.exhibition-header')).toHaveCSS('background-color', 'rgb(245, 248, 241)')
   await expect.poll(() => page.evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__?.snapshot().renderedPhotos.ready)).toBeGreaterThanOrEqual(36)
   expect(await page.evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__?.snapshot().effectiveConfig.effects.photo?.style)).toBe('none')
   await page.getByRole('button', { name: '下一张作品' }).click()
-  for (const [name, arrangement] of [['破阵重组', 'burst'], ['连锁翻面', 'domino'], ['双扇开合', 'fans']]) {
+  for (const [name, arrangement] of [['破阵重组', 'burst'], ['连锁翻面', 'domino'], ['双扇开合', 'fans'], ['照片龙', 'dragon']]) {
     await dock.getByRole('button', { name, exact: true }).click()
     await expect(dock.getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(() => page.evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__?.snapshot().requested.layout.params?.arrangement)).toBe(arrangement)
@@ -66,6 +68,11 @@ test('a creator preview opens from its cover and can switch to each choreography
     await expect(dock.getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'true')
     await expect(page.locator('.stage-counter span').first()).toHaveText('02')
   }
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await dockRows()).toBe(2)
+  await page.setViewportSize({ width: 667, height: 375 })
+  expect(await dockRows()).toBe(1)
+  expect((await page.locator('.spatial-controls').boundingBox())?.y).toBeGreaterThanOrEqual(210)
   await page.getByRole('button', { name: '查看当前作品' }).click()
   await expect(page.getByRole('dialog')).toHaveClass(/light-scene/)
   expect(errors).toEqual([])
@@ -74,7 +81,7 @@ test('a creator preview opens from its cover and can switch to each choreography
 test('a published choreography can be paused and opened on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const { errors } = await mockGallery(page, { config: {
-    layout: { mode: 'grid', params: { composition: 'curated', arrangement: 'fans' } },
+    layout: { mode: 'helix', params: { composition: 'curated', arrangement: 'dragon' } },
     camera: { autoRotate: true }
   } })
   await page.goto('/g/effects-fixture#s=shared-fixture')

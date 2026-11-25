@@ -1,12 +1,30 @@
 import type { PhotoChoreography } from '@vie/gallery-contracts'
+import { CatmullRomCurve3, MathUtils, Vector3 } from 'three'
+import { collectionChapter } from './collectionLayout'
 
 export const CHOREOGRAPHY_GROUP_SIZE = 12
 
-const DURATION: Record<PhotoChoreography, number> = { burst: 6.8, domino: 6.4, fans: 7.1 }
+const DRAGON_LAP = 20
+const DRAGON_HEAD_COUNT = 3
+const DURATION = { burst: 6.8, domino: 6.4, fans: 7.1 }
 const TAU = Math.PI * 2
 const SPACING = 2.39
 const RETURN_TIME = .9
 const HOLD_TIME = .72
+
+export function dragonChapter(index: number, loaded: number, total: number) {
+  const chapter = collectionChapter(index, loaded, CHOREOGRAPHY_GROUP_SIZE)
+  const finalCount = total % CHOREOGRAPHY_GROUP_SIZE
+  const minimum = DRAGON_HEAD_COUNT + 1
+  if (total <= CHOREOGRAPHY_GROUP_SIZE || finalCount === 0 || finalCount >= minimum) return chapter
+
+  const finalStart = total - minimum
+  if (index >= finalStart) return { start: finalStart, count: loaded - finalStart }
+  if (chapter.start === total - finalCount - CHOREOGRAPHY_GROUP_SIZE) {
+    return { start: chapter.start, count: Math.min(loaded, finalStart) - chapter.start }
+  }
+  return chapter
+}
 
 const mix = (from: number, to: number, t: number) => from + (to - from) * t
 function ease(time: number, start: number, end: number) {
@@ -105,16 +123,102 @@ function fans(index: number, count: number, t: number) {
 
 const movement = { burst, domino, fans }
 
+function dragonTrack(compact: boolean) {
+  const angle = compact ? -1.32 : .11
+  const curve = new CatmullRomCurve3(Array.from({ length: 48 }, (_, index) => {
+    const phase = index / 48 * TAU
+    const x = 6.1 * Math.cos(phase)
+    const lift = Math.sin(phase)
+    const y = 3.65 * lift + 1.35 * Math.sin(.72 * x) * lift * lift
+    return new Vector3(x * Math.cos(angle) - y * Math.sin(angle), x * Math.sin(angle) + y * Math.cos(angle),
+      1.55 * Math.sin(phase + .42) + .64 * Math.sin(phase * 2 + .45))
+  }), true)
+  curve.arcLengthDivisions = 1024
+  const segments = 512
+  const points = curve.getSpacedPoints(segments)
+  const normals = points.map((_, i) => {
+    const before = points[(i + segments - 1) % segments]!, after = points[(i + 1) % segments]!
+    return new Vector3(before.y - after.y, after.x - before.x, 0).normalize()
+  })
+  return { points, normals, length: curve.getLength() }
+}
+
+let wideDragonTrack: ReturnType<typeof dragonTrack> | undefined
+let compactDragonTrack: ReturnType<typeof dragonTrack> | undefined
+const DRAGON_NECK = 2.9
+const DRAGON_SPACING = 2.2
+
+function dragonHeadCount(count: number) {
+  return count <= DRAGON_HEAD_COUNT ? 1 : DRAGON_HEAD_COUNT
+}
+
+function dragonWavePhase(time: number, behind: number) {
+  return TAU * (time / DRAGON_LAP) * 3 - behind * .61
+}
+
+// The photos and the spine sample the same travelling wave, including at the lap seam.
+function dragonPoint(time: number, compact: boolean, behind: number, tail: number, target: Vector3) {
+  const { points, normals, length } = compact ? (compactDragonTrack ??= dragonTrack(true)) : (wideDragonTrack ??= dragonTrack(false))
+  const phase = time / DRAGON_LAP
+  const travel = .88 + phase + .013 * Math.sin(TAU * phase * 2)
+  const sample = MathUtils.euclideanModulo(travel - behind / length, 1) * (points.length - 1)
+  const i = Math.floor(sample)
+  const fraction = sample - i
+  target.lerpVectors(points[i]!, points[i + 1]!, fraction)
+  const wave = dragonWavePhase(time, behind)
+  const swing = (.07 + .39 * MathUtils.smoothstep(behind, 0, tail)) * Math.sin(wave)
+  target.addScaledVector(normals[i]!, (1 - fraction) * swing)
+  target.addScaledVector(normals[i + 1]!, fraction * swing)
+  target.z += .18 * Math.cos(wave)
+  return target
+}
+
+function dragonTail(count: number) {
+  return DRAGON_NECK + (count - dragonHeadCount(count) - 1) * DRAGON_SPACING + .7
+}
+
+export function dragonSpine(count: number, time: number, compact: boolean, progress: number, target: Vector3) {
+  const tail = dragonTail(count)
+  return dragonPoint(time, compact, tail * progress, tail, target)
+}
+
+const dragonPosition = new Vector3()
+const dragonDirection = new Vector3()
+
+function dragon(index: number, count: number, time: number, compact: boolean) {
+  const headCount = dragonHeadCount(count)
+  const isHead = index < headCount
+  const behind = isHead ? 0 : DRAGON_NECK + (index - headCount) * DRAGON_SPACING
+  const tail = dragonTail(count)
+  const point = dragonPoint(time, compact, behind, tail, dragonPosition)
+  const tangent = dragonPoint(time, compact, behind - (isHead ? .62 : .32), tail, dragonDirection).sub(point).normalize()
+  const heading = Math.atan2(tangent.y, tangent.x)
+  const side = index === 0 ? 0 : index === 1 ? -1 : 1
+  const pitch = -.23 * point.y / 4.4 + .12 * tangent.z
+  const yaw = .17 * point.x / 6.6 + .16 * Math.cos(heading) + .08
+  if (isHead) {
+    const wing = (1.32 + .07 * Math.sin(dragonWavePhase(time, 0))) * side
+    const forward = side ? -.28 : .72
+    return pose(point.x + forward * Math.cos(heading) - wing * Math.sin(heading),
+      point.y + forward * Math.sin(heading) + wing * Math.cos(heading), point.z + forward * tangent.z,
+      pitch, yaw + side * .13, .13 * Math.sin(heading) + side * .38, side ? 1.57 : 1.92)
+  }
+  const taper = (index - headCount) / Math.max(1, count - headCount - 1)
+  const swing = Math.cos(dragonWavePhase(time, behind))
+  return pose(point.x, point.y, point.z, pitch, yaw, .21 * Math.sin(heading) + .13 * taper * swing, 1.56 - .38 * taper)
+}
+
 export function choreographyHold(preset: PhotoChoreography) {
-  return DURATION[preset] + HOLD_TIME
+  return preset === 'dragon' ? DRAGON_LAP : DURATION[preset] + HOLD_TIME
 }
 
 export function choreographyCycle(preset: PhotoChoreography) {
-  return choreographyHold(preset) + RETURN_TIME
+  return choreographyHold(preset) + (preset === 'dragon' ? 0 : RETURN_TIME)
 }
 
 export function choreographyPose(preset: PhotoChoreography, index: number, count: number, time: number, compact: boolean, reduced: boolean) {
   if (count === 1) return pose(0, 0, 0, 0, 0, 0, 4.8)
+  if (preset === 'dragon') return dragon(index, count, reduced ? 0 : time, compact)
   const progress = Math.min(1, time / DURATION[preset])
   const sample = movement[preset]
   const closing = choreographyHold(preset)

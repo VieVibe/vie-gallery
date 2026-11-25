@@ -20,7 +20,7 @@ test('choosing a spatial scene applies daylight and preserves the download permi
 })
 
 test('each photo choreography round-trips as a saved spatial preset', () => {
-  for (const arrangement of ['burst', 'domino', 'fans']) {
+  for (const arrangement of ['burst', 'domino', 'fans', 'dragon']) {
     const result = normalizeViewerConfig({ layout: { params: { composition: 'curated', arrangement } } })
     assert.deepEqual(result.issues, [])
     assert.equal(resolveSpatialPreset(normalizeViewerConfig(JSON.parse(serializeViewerConfig(result.config))).config), arrangement)

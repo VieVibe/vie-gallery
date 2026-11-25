@@ -30,6 +30,7 @@ export const PHOTO_ARRANGEMENTS = [
   { id: 'burst', label: '破阵重组', mode: 'grid', caption: '整墙散开，两圈前后交错，重新围合主照片' },
   { id: 'domino', label: '连锁翻面', mode: 'grid', caption: '整组照片接力翻面，前后穿插换位' },
   { id: 'fans', label: '双扇开合', mode: 'grid', caption: '相片堆展开成双扇，交叉换侧后摊成双页' },
+  { id: 'dragon', label: '照片龙', mode: 'helix', caption: '扇形龙头引领照片沿 S 形曲线游动' },
   { id: 'book', label: '巨幅翻页', mode: 'helix', caption: '像翻阅画册一样，让故事一页页展开' },
   { id: 'tunnel', label: '时空长廊', mode: 'helix', caption: '沿着纵深光廊，走进下一段回忆' },
   { id: 'ribbon', label: '扭转丝带', mode: 'helix', caption: '照片沿流动的曲线，轻盈舒展' },

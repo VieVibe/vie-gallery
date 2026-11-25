@@ -6,7 +6,7 @@ import { CollectionStagePlugin } from '../src/plugins/CollectionStagePlugin'
 import type { PhotoMesh } from '../src/core/types'
 import { createViewerContext } from './helpers/viewerContext'
 
-function fixture(width: number, height: number, count: number, reduced = false, arrangement = 'fold') {
+function fixture(width: number, height: number, count: number, reduced = false, arrangement = 'fold', dataset: Record<string, string> = {}) {
   const photos = Array.from({ length: count }, (_, index) => {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(80, 60), new THREE.MeshStandardMaterial()) as PhotoMesh
     mesh.userData = { index, url: '', thumbnailUrl: '' }
@@ -23,7 +23,7 @@ function fixture(width: number, height: number, count: number, reduced = false, 
   context.scene.add(...photos)
   context.reducedMotion = () => reduced
   context.camera = new THREE.PerspectiveCamera(50, width / height, 1, 6000)
-  Object.assign(context.renderer, { domElement: Object.assign(new EventTarget(), { clientHeight: height, clientWidth: width }) })
+  Object.assign(context.renderer, { domElement: Object.assign(new EventTarget(), { clientHeight: height, clientWidth: width, dataset }) })
   const stage = new CollectionStagePlugin()
   stage.install(context)
   return { photos, context, stage }
@@ -246,5 +246,125 @@ test('reduced motion displays every photograph in a fan group without playing', 
   assert.ok(photos.every(photo => inFrame(photo, context.camera)))
   for (let i = 0; i < 100; i++) stage.update(.05)
   assert.deepEqual(photos.map(photo => photo.position.toArray()), layout)
+  stage.uninstall()
+})
+
+test('Photo Dragon keeps independent, legible faces in view throughout its 20-second lap', () => {
+  const pages = { hasMore: 'true', photoTotal: '60' }
+  const viewports = [[1600, 900, { presentation: 'preview' }], [1440, 900], [390, 844],
+    [360, 640, pages, 376], [667, 375, pages, 210]] as const
+  for (const [width, height, dataset, controlsTop] of viewports) {
+    const { photos, context, stage } = fixture(width, height, 12, false, 'dragon', dataset)
+    const opening = photos.map(photo => photo.position.clone())
+    const ids = photos.map(photo => photo.id)
+    let minFacing = 1
+    let maxOverlap = 0
+    let maxEdge = 0
+    let bottom = 0
+    let overlapAt = ''
+    for (let frame = 0; frame < 250; frame++) {
+      const boxes = photos.map(photo => {
+        const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(photo.quaternion)
+        minFacing = Math.min(minFacing, normal.dot(context.camera.position.clone().sub(photo.position).normalize()))
+        const bounds = new THREE.Box2()
+        photo.updateMatrixWorld(true)
+        for (const x of [-40, 40]) for (const y of [-30, 30]) {
+          const point = new THREE.Vector3(x, y, 0).applyMatrix4(photo.matrixWorld).project(context.camera)
+          bounds.expandByPoint(new THREE.Vector2(point.x, point.y))
+        }
+        return bounds
+      })
+      for (const box of boxes) {
+        maxEdge = Math.max(maxEdge, -box.min.x, -box.min.y, box.max.x, box.max.y)
+        bottom = Math.max(bottom, (1 - box.min.y) * height / 2)
+      }
+      for (const [index, box] of boxes.entries()) for (let otherIndex = index + 1; otherIndex < boxes.length; otherIndex++) {
+        const other = boxes[otherIndex]!
+        const area = (bounds: THREE.Box2) => bounds.isEmpty() ? 0 : (bounds.max.x - bounds.min.x) * (bounds.max.y - bounds.min.y)
+        const overlap = area(box.clone().intersect(other)) / Math.min(area(box), area(other))
+        if (overlap > maxOverlap) {
+          maxOverlap = overlap
+          overlapAt = `${index}/${otherIndex} at ${(frame * .08).toFixed(2)}s`
+        }
+      }
+      if (frame === 124) assert.ok(photos[0]!.position.distanceTo(opening[0]!) > 300)
+      stage.update(.08)
+    }
+    assert.ok(minFacing > .8, `front-face cosine ${minFacing} at ${width}px`)
+    assert.ok(maxEdge < .96, `projected edge ${maxEdge} at ${width}px`)
+    assert.ok(maxOverlap < .36, `projected overlap ${maxOverlap} between ${overlapAt} at ${width}px`)
+    if (controlsTop) assert.ok(bottom < controlsTop, `photos reach y=${bottom} under controls at y=${controlsTop} on ${width}px`)
+    assert.deepEqual(photos.map(photo => photo.id), ids)
+    assert.ok(photos.every((photo, index) => photo.position.distanceTo(opening[index]!) < .001))
+    context.emit('stage:autoplay', false)
+    stage.update(.08)
+    assert.ok(photos.every((photo, index) => photo.position.distanceTo(opening[index]!) < .001))
+    stage.uninstall()
+  }
+})
+
+test('Photo Dragon leaves room for a head and body in the final group', () => {
+  const { photos, context, stage } = fixture(1440, 900, 12, false, 'dragon', { hasMore: 'true', photoTotal: '13' })
+  const shown = () => photos.filter(photo => photo.visible).map(photo => photo.userData.index)
+  const firstGroup = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+  assert.deepEqual(shown(), firstGroup)
+  for (let frame = 0; frame < 250; frame++) stage.update(.08)
+  assert.deepEqual(shown(), firstGroup)
+  const last = photos[0]!.clone()
+  last.userData.index = 12
+  photos.push(last)
+  context.scene.add(last)
+  delete context.renderer.domElement.dataset.hasMore
+  context.emit('photos:loaded')
+  for (let frame = 0; frame < 250; frame++) stage.update(.08)
+  assert.deepEqual(shown(), [9, 10, 11, 12])
+  const opening = photos[9]!.position.clone()
+  for (let frame = 0; frame < 30; frame++) stage.update(.08)
+  assert.ok(photos[9]!.position.distanceTo(opening) > 100)
+  context.emit('stage:select', 8)
+  stage.update(0)
+  assert.deepEqual(shown(), firstGroup)
+  stage.uninstall()
+})
+
+test('short dragons have a leader and followers even with only two or three photos', () => {
+  for (const count of [2, 3]) {
+    const { photos, context, stage } = fixture(390, 844, count, false, 'dragon')
+    for (let frame = 0; frame < 250; frame++) {
+      const [head, next] = photos
+      const direction = next!.position.clone().sub(head!.position)
+      assert.ok(direction.length() > 200, 'the second work follows down the body')
+      if (count === 3) {
+        const tail = photos[2]!.position.clone().sub(next!.position)
+        assert.ok(direction.dot(tail) > 0, 'the third work trails the second')
+      }
+      assert.ok(photos.every(photo => fullyInFrame(photo, context.camera)))
+      stage.update(.08)
+    }
+    stage.uninstall()
+  }
+})
+
+test('the dragon reuses its spine while stationary and refreshes it after resume or aspect changes', () => {
+  const { context, stage } = fixture(1440, 900, 12, false, 'dragon')
+  const guide = context.scene.children.find(child => child instanceof THREE.LineSegments) as THREE.LineSegments
+  const positions = guide.geometry.getAttribute('position') as THREE.BufferAttribute
+  context.emit('stage:autoplay', false)
+  const paused = positions.version
+  for (let i = 0; i < 10; i++) stage.update(.05)
+  assert.equal(positions.version, paused)
+  context.emit('stage:autoplay', true)
+  stage.update(.05)
+  assert.ok(positions.version > paused)
+  context.reducedMotion = () => true
+  stage.update(.05)
+  const still = positions.version
+  stage.update(.05)
+  assert.equal(positions.version, still)
+  const camera = context.camera as THREE.PerspectiveCamera
+  camera.aspect = 390 / 844
+  camera.updateProjectionMatrix()
+  stage.update(.05)
+  assert.ok(positions.version > still)
   stage.uninstall()
 })

@@ -5,7 +5,7 @@ import {
   COLLECTION_UNIT as unit, FOLD_BAY_SPACING, FOLD_FIRST_BAY_Z, FOLD_PHOTOS_PER_BAY,
   collectionChapter, collectionPose, foldCenter, foldPose, spaceBlades, spacePoint, tideColumns, tideDepth
 } from '../lib/collectionLayout'
-import { CHOREOGRAPHY_GROUP_SIZE, choreographyCycle, choreographyHold, choreographyPose } from '../lib/photoChoreography'
+import { CHOREOGRAPHY_GROUP_SIZE, choreographyCycle, choreographyHold, choreographyPose, dragonChapter, dragonSpine } from '../lib/photoChoreography'
 
 type Pose = { position: THREE.Vector3; rotation: THREE.Quaternion; scale: number }
 type FoldWindow = { cameraZ: number; nearBay: number; farBay: number; cycle: number; count: number; total: number; compact: boolean; hasMore: boolean }
@@ -52,8 +52,12 @@ export class CollectionStagePlugin implements ViewerPlugin {
   private currentLook = new THREE.Vector3()
   private position = new THREE.Vector3()
   private rotation = new THREE.Quaternion()
+  private facing = new THREE.Quaternion()
+  private photoLook = new THREE.Matrix4()
   private euler = new THREE.Euler()
   private focusPosition = new THREE.Vector3()
+  private guideEnd = new THREE.Vector3()
+  private dragonGuide = { time: NaN, count: 0, compact: false }
   private snapCamera = true
   private from = new Map<PhotoMesh, Pose>()
   private morphTime = 1.2
@@ -101,12 +105,20 @@ export class CollectionStagePlugin implements ViewerPlugin {
 
   private select = (index: number) => { this.setSelection(index, true) }
 
+  private totalPhotos(loaded: number) {
+    return Math.max(loaded, Number(this.canvas.dataset?.photoTotal) || 0)
+  }
+
+  private chapterAt(index: number, count: number) {
+    if (this.preset === 'dragon') return dragonChapter(index, count, this.totalPhotos(count))
+    return collectionChapter(index, count, isPhotoChoreography(this.preset) ? CHOREOGRAPHY_GROUP_SIZE : undefined)
+  }
+
   private setSelection(index: number, reposition: boolean, direction = 0) {
     if (!Number.isInteger(index) || index < 0 || index >= this.context.photos.length || index === this.index) return
     const count = this.context.photos.length
     const fold = this.preset === 'fold'
-    const groupSize = isPhotoChoreography(this.preset) ? CHOREOGRAPHY_GROUP_SIZE : undefined
-    const newChapter = collectionChapter(index, count, groupSize).start !== collectionChapter(this.index, count, groupSize).start
+    const newChapter = this.chapterAt(index, count).start !== this.chapterAt(this.index, count).start
     const wraps = fold && direction !== 0 && !this.canvas.dataset?.hasMore && Math.sign(index - this.index) !== direction
     if (fold && reposition) {
       const cycle = foldCycle(count)
@@ -187,6 +199,8 @@ export class CollectionStagePlugin implements ViewerPlugin {
       this.from.set(photo, { position, rotation: photo.quaternion.clone(), scale: photo.scale.x })
     }
     this.preset = next
+    this.dragonGuide.time = NaN
+    this.guides.material.opacity = .34
     this.snapCamera ||= isPhotoChoreography(next)
     this.foldTravel = nextTravel
     this.choreographyLoadCooldown = 0
@@ -249,20 +263,25 @@ export class CollectionStagePlugin implements ViewerPlugin {
     const height = this.canvas.clientHeight || 800
     const preview = this.canvas.dataset?.presentation === 'preview'
     const short = height < 580
-    const top = preview || this.immersive ? 20 : short ? 106 : 142
+    const shortDock = height <= 560 && this.canvas.clientWidth >= 530
+    const hasMore = !!this.canvas.dataset?.hasMore
+    const dragon = this.preset === 'dragon' && count > 1
+    const top = preview || this.immersive ? 20 : dragon && shortDock ? 76 : short ? 106 : 142
     const choreography = isPhotoChoreography(this.preset)
     const bottom = preview ? 20 : this.immersive ? (choreography ? 108 : 20)
-      : (short ? 108 : 142) + (choreography || this.canvas.dataset?.hasMore ? 45 : 0)
-        + (this.canvas.clientWidth <= 700 && this.canvas.dataset?.presentation !== 'locked' ? 44 : 0)
+      : (dragon && shortDock ? 116 : short ? 108 : 142) + (choreography || hasMore ? 45 : 0)
+        + (dragon && hasMore && !shortDock ? 45 : 0)
+        + (!shortDock && this.canvas.clientWidth <= 700 && this.canvas.dataset?.presentation !== 'locked' ? 44 : 0)
     const tangent = Math.tan(camera.fov * Math.PI / 360)
-    const usableHeight = Math.max(.46, 1 - (top + bottom) / height)
+    const usableHeight = Math.max(dragon ? .28 : .46, 1 - (top + bottom) / height)
     const centerY = (top - bottom) / height
     const tide = this.preset === 'tide'
     if (choreography) {
-      const halfWidth = compact ? 4.93 : 6.2
-      const distance = Math.max(9.8, halfWidth / (aspect * tangent * .96) + 2, 2.92 / (tangent * usableHeight) + 2)
-      this.eye.set(0, 1.22, distance)
-      this.look.set(0, .24 + centerY * tangent * distance, 0)
+      const halfWidth = dragon ? 7.35 : compact ? 4.93 : 6.2
+      const halfHeight = dragon ? (compact ? 7.65 : 7.05) : 2.92
+      const distance = Math.max(9.8, halfWidth / (aspect * tangent * .96) + 2, halfHeight / (tangent * usableHeight) + 2)
+      this.eye.set(dragon ? 2.1 : 0, dragon ? 1.65 : 1.22, distance)
+      this.look.set(0, (dragon ? 0 : .24) + centerY * tangent * distance, 0)
     } else if (this.preset === 'fold') {
       const factor = compact ? .74 : 1
       const setback = Math.max(9.8, 4.35 * factor / (aspect * tangent * .86), 2.75 / (tangent * usableHeight))
@@ -309,15 +328,24 @@ export class CollectionStagePlugin implements ViewerPlugin {
 
   private advanceChoreography(preset: PhotoChoreography, dt: number, chapter: ReturnType<typeof collectionChapter>, hasMore: boolean) {
     const loaded = this.context.photos.length
-    const next = chapter.start + CHOREOGRAPHY_GROUP_SIZE
+    const next = chapter.start + chapter.count
     this.choreographyLoadCooldown -= dt
     if (hasMore && loaded - chapter.start <= CHOREOGRAPHY_GROUP_SIZE * 2 && this.choreographyLoadCooldown <= 0) {
       this.choreographyLoadCooldown = 8
       this.context.emit('stage:load-more')
     }
-    if (hasMore && next >= loaded) this.time = Math.min(this.time, choreographyHold(preset))
-    if (this.time < choreographyCycle(preset)) return
-    this.time = this.wakeTime = 0
+    const cycle = choreographyCycle(preset)
+    if (preset === 'dragon') {
+      if (this.time + 1e-8 < cycle) return
+      this.time = Math.max(0, this.time - cycle)
+      this.wakeTime = 0
+      if (next >= loaded && (hasMore || chapter.start === 0)) return
+      if (hasMore && next + this.chapterAt(next, this.totalPhotos(loaded)).count > loaded) return
+    } else {
+      if (hasMore && next >= loaded) this.time = Math.min(this.time, choreographyHold(preset))
+      if (this.time < cycle) return
+      this.time = this.wakeTime = 0
+    }
     const index = next < loaded ? next : 0
     if (index !== this.index) {
       this.index = index
@@ -396,30 +424,30 @@ export class CollectionStagePlugin implements ViewerPlugin {
   update(delta: number) {
     const { photos } = this.context
     const choreography = isPhotoChoreography(this.preset) ? this.preset : null
-    let chapter = collectionChapter(this.index, photos.length, choreography ? CHOREOGRAPHY_GROUP_SIZE : undefined)
+    let chapter = this.chapterAt(this.index, photos.length)
     const fold = this.preset === 'fold'
-    const count = fold ? photos.length : chapter.count
     const hasMore = !!this.canvas.dataset?.hasMore
     const camera = this.context.camera as THREE.PerspectiveCamera
     const reduced = this.context.reducedMotion()
     const dt = Math.min(delta, .05)
-    const playbackDelta = choreography ? dt * ((this.context.config.camera?.rotateSpeed ?? .5) / .5) : dt
-    const canAdvance = count > 1 || (fold && count > 0) || (choreography && count > 0 && (photos.length > 1 || hasMore))
+    const motionDelta = choreography === 'dragon' ? delta : dt
+    const playbackDelta = choreography ? motionDelta * ((this.context.config.camera?.rotateSpeed ?? .5) / .5) : dt
+    const canAdvance = chapter.count > 1 || (fold && photos.length > 0) || (choreography && chapter.count > 0 && (photos.length > 1 || hasMore))
     if (this.autoplay && !reduced && !this.suspended && !this.drag && !this.focus && playbackDelta > 0 && canAdvance && (!choreography || this.morphTime >= 1.2)) {
       this.time += playbackDelta
-      if (fold) this.advanceFold(dt, count, hasMore)
+      if (fold) this.advanceFold(dt, photos.length, hasMore)
       if (choreography) {
         // A new group's visibility must be calculated from its new index in this frame.
         this.advanceChoreography(choreography, dt, chapter, hasMore)
-        chapter = collectionChapter(this.index, photos.length, CHOREOGRAPHY_GROUP_SIZE)
+        chapter = this.chapterAt(this.index, photos.length)
       }
       if (this.time - this.wakeTime >= 2) {
         this.wakeTime = this.time
         this.context.emit('stage:interaction')
       }
     }
-    const visibleCount = choreography ? chapter.count : count
-    if (!visibleCount) {
+    const count = fold ? photos.length : chapter.count
+    if (!count) {
       this.guides.visible = false
       return
     }
@@ -442,7 +470,7 @@ export class CollectionStagePlugin implements ViewerPlugin {
     const cycle = foldCycle(count)
     const lastRevealedLap = Math.floor((this.foldTravel + cycle - foldBayCount(count) + 1) / cycle)
     const window: FoldWindow | null = fold ? {
-      cameraZ, count, total: Math.max(count, Number(this.canvas.dataset?.photoTotal) || count), compact, hasMore, cycle,
+      cameraZ, count, total: this.totalPhotos(count), compact, hasMore, cycle,
       nearBay: Math.max(0, Math.ceil((FOLD_FIRST_BAY_Z - cameraZ - 2) / FOLD_BAY_SPACING)),
       farBay: Math.min((lastRevealedLap + 1) * cycle - 1,
         Math.floor((FOLD_FIRST_BAY_Z - cameraZ + FOLD_HORIZON) / FOLD_BAY_SPACING))
@@ -450,7 +478,7 @@ export class CollectionStagePlugin implements ViewerPlugin {
     const zoom = focus ? THREE.MathUtils.smoothstep(focus.amount, 0, 1) : 0
     let preloadFrom = Infinity
     if (choreography && this.autoplay && !reduced && playbackDelta > 0) {
-      const next = chapter.start + CHOREOGRAPHY_GROUP_SIZE
+      const next = chapter.start + chapter.count
       if (next < photos.length) preloadFrom = next
       else if (!hasMore && chapter.start > 0) preloadFrom = 0
     }
@@ -462,7 +490,7 @@ export class CollectionStagePlugin implements ViewerPlugin {
       const bays = window && this.foldBays(i, window)
       photo.visible = window && bays
         ? (bays.first >= window.nearBay && bays.first <= bays.last) || focus?.index === i
-        : local >= 0 && local < visibleCount
+        : local >= 0 && local < count
       if (!photo.visible) {
         const copies = this.foldCopies.get(photo)
         if (copies) {
@@ -472,13 +500,17 @@ export class CollectionStagePlugin implements ViewerPlugin {
         continue
       }
       const pose = window && bays ? foldPose(i, window.total, this.time, compact, bays.primary)
-        : choreography ? choreographyPose(choreography, local, visibleCount, this.time, compact, reduced)
+        : choreography ? choreographyPose(choreography, local, count, this.time, compact, reduced)
           : collectionPose(this.preset, local, count, this.time, compact, zoom)
       this.position.set(pose.x * unit, pose.y * unit, pose.z * unit)
       this.rotation.setFromEuler(this.euler.set(pose.rx, pose.ry, pose.rz))
+      if (choreography === 'dragon') {
+        this.photoLook.lookAt(camera.position, this.position, camera.up)
+        this.rotation.premultiply(this.facing.setFromRotationMatrix(this.photoLook))
+      }
       const { width, height } = (photo.geometry as THREE.PlaneGeometry).parameters
       const fitLimit = count === 1 && !fold ? 5.5 : 2.12
-      let scale = choreography ? pose.size * unit / Math.max(width, height / (visibleCount === 1 ? .94 : .70))
+      let scale = choreography ? pose.size * unit / Math.max(width, height / (count === 1 ? .94 : .70))
         : Math.min(pose.size * unit / Math.sqrt(width * height), fitLimit * unit / Math.max(width, height))
       if (i === this.index && count > 1 && !bays && !choreography) scale *= 1.04
       if (window && bays) {
@@ -517,7 +549,8 @@ export class CollectionStagePlugin implements ViewerPlugin {
         material.needsUpdate = true
       }
     }
-    if (choreography) this.guides.visible = false
+    if (choreography === 'dragon' && count > 1 && this.morphTime >= 1.2) this.drawGuides(count, compact, zoom)
+    else if (choreography) this.guides.visible = false
     else this.drawGuides(count, compact, zoom)
     if (focus && !focus.opened && focus.amount === 1) {
       focus.opened = true
@@ -530,11 +563,12 @@ export class CollectionStagePlugin implements ViewerPlugin {
     this.guides.visible = fold || count > 1
     if (!this.guides.visible) return
     let offset = 0
+    let updateColors = true
     const cameraZ = this.context.camera.position.z / unit
-    const line = (x: number, y: number, z: number, nextX: number, nextY: number, nextZ: number) => {
+    const line = (x: number, y: number, z: number, nextX: number, nextY: number, nextZ: number, fromAlpha = 1, toAlpha = 1) => {
       const color = offset / 3 * 4
-      this.lineColors[color + 3] = fold ? foldDepthFade(cameraZ - z) : 1
-      this.lineColors[color + 7] = fold ? foldDepthFade(cameraZ - nextZ) : 1
+      this.lineColors[color + 3] = fold ? foldDepthFade(cameraZ - z) : fromAlpha
+      this.lineColors[color + 7] = fold ? foldDepthFade(cameraZ - nextZ) : toAlpha
       this.lineVertices[offset++] = x * unit
       this.lineVertices[offset++] = y * unit
       this.lineVertices[offset++] = z * unit
@@ -542,7 +576,24 @@ export class CollectionStagePlugin implements ViewerPlugin {
       this.lineVertices[offset++] = nextY * unit
       this.lineVertices[offset++] = nextZ * unit
     }
-    if (this.preset === 'tide') {
+    if (this.preset === 'dragon') {
+      const time = this.context.reducedMotion() ? 0 : this.time
+      const previous = this.dragonGuide
+      this.guides.material.opacity = .34 * (1 - focus)
+      if (previous.time === time && previous.count === count && previous.compact === compact) return
+      const segments = Math.min(64, count * 6)
+      updateColors = previous.count !== count || Number.isNaN(previous.time)
+      previous.time = time
+      previous.count = count
+      previous.compact = compact
+      const head = dragonSpine(count, time, compact, 0, this.position)
+      const alpha = (progress: number) => 1 - THREE.MathUtils.smoothstep(progress, .62, 1)
+      for (let i = 1; i <= segments; i++) {
+        const next = dragonSpine(count, time, compact, i / segments, this.guideEnd)
+        line(head.x, head.y, head.z - .24, next.x, next.y, next.z - .24, alpha((i - 1) / segments), alpha(i / segments))
+        head.copy(next)
+      }
+    } else if (this.preset === 'tide') {
       const columns = tideColumns(count, compact)
       const rows = Math.ceil(count / columns)
       const width = columns * 2.22
@@ -591,8 +642,16 @@ export class CollectionStagePlugin implements ViewerPlugin {
       }
     }
     this.guides.geometry.setDrawRange(0, offset / 3)
-    this.guides.geometry.attributes.position!.needsUpdate = true
-    this.guides.geometry.attributes.color!.needsUpdate = true
+    const positions = this.guides.geometry.getAttribute('position') as THREE.BufferAttribute
+    positions.clearUpdateRanges()
+    positions.addUpdateRange(0, offset)
+    positions.needsUpdate = true
+    if (updateColors) {
+      const colors = this.guides.geometry.getAttribute('color') as THREE.BufferAttribute
+      colors.clearUpdateRanges()
+      colors.addUpdateRange(0, offset / 3 * 4)
+      colors.needsUpdate = true
+    }
   }
 
   uninstall() {

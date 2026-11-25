@@ -15,7 +15,8 @@ export type CuratedStyle = typeof CURATED_STYLES[number]['id']
 const CHOREOGRAPHY_PRESETS = [
   { id: 'burst', label: '破阵重组', caption: '散开、交错旋转，重新聚成一组', color: '#e1ece5', secondaryColor: '#bacdbf' },
   { id: 'domino', label: '连锁翻面', caption: '依次翻面，从前后两层换位', color: '#26384b', secondaryColor: '#455469' },
-  { id: 'fans', label: '双扇开合', caption: '由一叠展开为两扇，再摊成双页', color: '#f5eadb', secondaryColor: '#d9c6ad' }
+  { id: 'fans', label: '双扇开合', caption: '由一叠展开为两扇，再摊成双页', color: '#f5eadb', secondaryColor: '#d9c6ad' },
+  { id: 'dragon', label: '照片龙', caption: '扇形龙头领游，照片沿 S 形曲线依次跟随', color: '#eaf4ef', secondaryColor: '#b8d3c9' }
 ] as const
 export type PhotoChoreography = typeof CHOREOGRAPHY_PRESETS[number]['id']
 
@@ -64,7 +65,7 @@ export function applySpatialTheme(config: ViewerConfig): ViewerConfig {
 export function applySpatialPreset(config: ViewerConfig, preset: SpatialPreset): ViewerConfig {
   return applySpatialTheme(mergeViewerConfig(applyPhotoArrangement(config, preset), {
     layout: { transition: { style: 'smooth', duration: 1.2 } },
-    camera: { autoRotate: true, introFlight: false }
+    camera: { autoRotate: true, introFlight: false, ...(preset === 'dragon' ? { rotateSpeed: .5 } : {}) }
   }))
 }
 
