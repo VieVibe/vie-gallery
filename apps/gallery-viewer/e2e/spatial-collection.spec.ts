@@ -87,3 +87,43 @@ test('a mobile collection advances in chapters and keeps the active work when ch
   await expect(counter).toHaveText('50')
   expect(errors).toEqual([])
 })
+
+test('Fold automatically loads more works and advances the active bay', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const { errors } = await mockGallery(page, {
+    count: 56,
+    config: {
+      layout: { mode: 'helix', params: { composition: 'curated', arrangement: 'fold' } },
+      camera: { autoRotate: true }
+    }
+  })
+  await page.goto('/g/effects-fixture?preview=creator-fixture')
+  await page.getByRole('button', { name: '开始浏览' }).click()
+  const counter = page.locator('.stage-counter span')
+  await expect(counter.last()).toHaveText('56')
+  await expect.poll(async () => Number(await counter.first().textContent())).toBeGreaterThan(1)
+  await page.getByRole('button', { name: '暂停漫游', exact: true }).click()
+  await expect(page.getByRole('button', { name: '自动漫游', exact: true })).toHaveAttribute('aria-pressed', 'false')
+  expect(errors).toEqual([])
+})
+
+test('the embedded Fold preview also loads beyond the first page', async ({ page }) => {
+  const { errors } = await mockGallery(page, {
+    count: 56,
+    config: {
+      layout: { mode: 'helix', params: { composition: 'curated', arrangement: 'fold' } },
+      camera: { autoRotate: true }
+    }
+  })
+  await page.route('**/fold-preview-host', route => route.fulfill({
+    contentType: 'text/html', body: '<iframe src="/g/effects-fixture?embed=preview"></iframe>'
+  }))
+  const nextPage = page.waitForResponse(response => {
+    const url = new URL(response.url())
+    return url.pathname.endsWith('/photos') && url.searchParams.get('page') === '1' && response.ok()
+  })
+  await page.goto('/fold-preview-host')
+  await nextPage
+  await expect(page.frameLocator('iframe').locator('canvas[data-presentation="preview"]')).not.toHaveAttribute('data-has-more', 'true')
+  expect(errors).toEqual([])
+})

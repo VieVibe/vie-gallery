@@ -2,6 +2,9 @@ import type { SpatialPreset } from '@vie/gallery-contracts'
 
 export const COLLECTION_CHAPTER_SIZE = 50
 export const COLLECTION_UNIT = 100
+export const FOLD_PHOTOS_PER_BAY = 6
+export const FOLD_BAY_SPACING = 3.58
+export const FOLD_FIRST_BAY_Z = 8.75
 const TAU = Math.PI * 2
 
 export function collectionChapter(index: number, count: number) {
@@ -19,6 +22,21 @@ export function tideDepth(x: number, y: number, time: number) {
 
 export function foldCenter(z: number) {
   return 1.2 * Math.sin((10 - z) * .25)
+}
+
+export function foldPose(index: number, count: number, time: number, compact: boolean, positionBay: number) {
+  const slot = index % FOLD_PHOTOS_PER_BAY
+  const row = Math.floor(slot / 2)
+  const rows = Math.ceil(Math.min(FOLD_PHOTOS_PER_BAY, count - index + slot) / 2)
+  const side = slot % 2 ? 1 : -1
+  const z = FOLD_FIRST_BAY_Z - positionBay * FOLD_BAY_SPACING + (row - (rows - 1) / 2) * .20
+  const swing = Math.sin(.92 * time - positionBay * .79 + side * .4)
+  const lateral = count === 1 ? 1.9 : 3.15
+  const angle = count === 1 ? .72 : 1.02
+  return {
+    x: (foldCenter(z) + side * (lateral + .37 * swing)) * (compact ? .74 : 1),
+    y: ((rows - 1) / 2 - row) * 1.77, z, rx: 0, ry: -side * (angle + .17 * swing), rz: side * .016, size: 1.48
+  }
 }
 
 export function spaceBlades(count: number) {
@@ -56,17 +74,7 @@ export function collectionPose(preset: SpatialPreset, index: number, count: numb
       ry: -.82 * Math.atan((tideDepth(x + .1, y, time) - z) * 10), rz: .035 * Math.sin(x * .45 - time), size: 1.42 }
   }
   if (preset === 'fold') {
-    const bay = Math.floor(index / 6)
-    const slot = index % 6
-    const row = Math.floor(slot / 2)
-    const rows = Math.ceil(Math.min(6, count - bay * 6) / 2)
-    const side = slot % 2 ? 1 : -1
-    const z = 8.75 - bay * 3.58 + (row - (rows - 1) / 2) * .20
-    const swing = Math.sin(.92 * time - bay * .79 + side * .4)
-    return {
-      x: (foldCenter(z) + side * (3.15 + .37 * swing)) * (compact ? .74 : 1),
-      y: ((rows - 1) / 2 - row) * 1.77, z, rx: 0, ry: -side * (1.02 + .17 * swing), rz: side * .016, size: 1.48
-    }
+    return foldPose(index, count, time, compact, Math.floor(index / FOLD_PHOTOS_PER_BAY))
   }
   const blades = spaceBlades(count)
   const blade = index % blades

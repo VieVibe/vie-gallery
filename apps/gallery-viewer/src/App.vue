@@ -475,6 +475,9 @@ async function init3DEngine() {
     activeEngine.getEventBus().on('stage:change', (state: { index: number }) => { stageIndex.value = state.index })
     activeEngine.getEventBus().on('stage:open', (index: number) => openLightbox(index))
     activeEngine.getEventBus().on('stage:interaction', () => activeEngine.wakeUp())
+    activeEngine.getEventBus().on('stage:load-more', () => {
+      if (engine === activeEngine) void viewer.loadMore()
+    })
     activeEngine.getEventBus().on('config:update', (config: ViewerConfig) => {
       selectedStyle.value = resolveCuratedStyle(config)
       currentArrangement.value = resolvePhotoArrangement(config)
@@ -610,7 +613,7 @@ function bindCanvasInteractions() {
     if (intersects.length > 0) {
       const hit = intersects[0].object as Three.Mesh
       const idx = hit.userData.index
-      if (stageActive.value && !theatre.value.active) { requestStagePhoto(idx); return }
+      if (stageActive.value && !theatre.value.active) { requestStagePhoto(idx, hit); return }
       
       if (theatre.value.active) {
         void sendTheatreCommand({ type: 'focus', index: idx })
@@ -754,8 +757,8 @@ function startAlbum() {
   else openLightbox(0)
 }
 
-function requestStagePhoto(index: number) {
-  if (collectionPreset.value && engine) engine.getEventBus().emit('stage:focus', index)
+function requestStagePhoto(index: number, surface?: Three.Mesh) {
+  if (collectionPreset.value && engine) engine.getEventBus().emit('stage:focus', { index, surface })
   else openLightbox(index)
 }
 
@@ -827,7 +830,7 @@ function resetView() {
     <!-- 3. Admin 嵌入预览：草稿/未公开时仍渲染 WebGL 沙盒 -->
     <div v-else-if="isEmbedPreview() && viewMode === '3d' && (viewer.isReady.value || viewer.isEmpty.value)" class="gallery-viewport embed-preview">
       <div class="canvas-container">
-        <canvas ref="canvasRef" class="webgl-canvas" data-presentation="preview" tabindex="0" aria-label="展厅预览，拖动探索，按 Enter 查看当前照片。"></canvas>
+        <canvas ref="canvasRef" class="webgl-canvas" data-presentation="preview" :data-has-more="viewer.hasMore.value || undefined" :data-photo-total="viewer.total.value" tabindex="0" aria-label="展厅预览，拖动探索，按 Enter 查看当前照片。"></canvas>
       </div>
     </div>
 
@@ -985,7 +988,7 @@ function resetView() {
 
       <!-- Mode 1: 3D Spatial WebGL Canvas -->
       <div v-if="viewMode === '3d'" class="canvas-container" :class="{ 'has-theatre-controls': showTheatreControls, 'is-theatre-active': theatre.active }">
-        <canvas ref="canvasRef" class="webgl-canvas" :class="{ 'filmstrip-canvas': stageActive && currentArrangement === 'filmstrip' && !theatre.active && !isImmersive }" tabindex="0" :data-has-more="viewer.hasMore.value || undefined" :aria-label="showPhotoDetails ? '照片空间，拖动、滚轮或左右方向键切换作品，Enter 查看大图。' : '照片空间，可拖动探索、滚动缩放。也可切换平面展览，用键盘逐张浏览照片。'"></canvas>
+        <canvas ref="canvasRef" class="webgl-canvas" :class="{ 'filmstrip-canvas': stageActive && currentArrangement === 'filmstrip' && !theatre.active && !isImmersive }" tabindex="0" :data-has-more="viewer.hasMore.value || undefined" :data-photo-total="viewer.total.value" :aria-label="showPhotoDetails ? '照片空间，拖动、滚轮或左右方向键切换作品，Enter 查看大图。' : '照片空间，可拖动探索、滚动缩放。也可切换平面展览，用键盘逐张浏览照片。'"></canvas>
         <div v-if="!engineReady" class="scene-loading" role="status"><span class="scene-loading-line" aria-hidden="true"></span><span>正在布置展厅…</span><button type="button" @click="viewMode = '2d'">先看平面展览</button></div>
         <div v-else-if="!theatre.active" class="spatial-tips">
           <p><span class="desktop-tip">{{ collectionPreset ? '拖动探索 · 方向键选图' : showPhotoDetails ? '拖动 / 方向键切换' : '拖动探索 · 滚动缩放' }}</span><span class="touch-tip">{{ collectionPreset ? '拖动场景' : '左右滑动浏览' }}</span><span class="tip-separator" aria-hidden="true">·</span>点击作品查看大图</p>

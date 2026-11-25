@@ -1,9 +1,27 @@
 import * as THREE from 'three'
 import { resolveSpatialPreset, type SpatialPreset } from '@vie/gallery-contracts'
 import type { PhotoMesh, ViewerContext, ViewerPlugin } from '../core/types'
-import { COLLECTION_UNIT as unit, collectionChapter, collectionPose, foldCenter, spaceBlades, spacePoint, tideColumns, tideDepth } from '../lib/collectionLayout'
+import {
+  COLLECTION_UNIT as unit, FOLD_BAY_SPACING, FOLD_FIRST_BAY_Z, FOLD_PHOTOS_PER_BAY,
+  collectionChapter, collectionPose, foldCenter, foldPose, spaceBlades, spacePoint, tideColumns, tideDepth
+} from '../lib/collectionLayout'
 
 type Pose = { position: THREE.Vector3; rotation: THREE.Quaternion; scale: number }
+type FoldWindow = { cameraZ: number; nearBay: number; farBay: number; cycle: number; count: number; total: number; compact: boolean; hasMore: boolean }
+type FoldBays = { first: number; last: number; primary: number }
+const FOLD_HORIZON = 52
+
+function foldBayCount(count: number) {
+  return Math.ceil(count / FOLD_PHOTOS_PER_BAY)
+}
+
+function foldCycle(count: number) {
+  return Math.max(4, foldBayCount(count))
+}
+
+function foldDepthFade(depth: number) {
+  return 1 - THREE.MathUtils.smoothstep(depth, 32, FOLD_HORIZON - 1)
+}
 
 export class CollectionStagePlugin implements ViewerPlugin {
   name = 'CollectionStage'
@@ -13,14 +31,17 @@ export class CollectionStagePlugin implements ViewerPlugin {
   private canvas!: HTMLCanvasElement
   private preset!: SpatialPreset
   private index = 0
-  private foldBay = 0
+  private foldTravel = 0
+  private foldRequestedCount = 0
+  private foldLoadCooldown = 0
+  private foldCopies = new Map<PhotoMesh, THREE.Mesh[]>()
   private time = 0
   private autoplay = false
   private configuredAutoplay = false
   private wakeTime = 0
   private suspended = false
   private immersive = false
-  private focus: { index: number; amount: number; opened: boolean } | null = null
+  private focus: { index: number; amount: number; opened: boolean; bay?: number } | null = null
   private drag: { id: number; x: number; y: number } | null = null
   private aim = new THREE.Vector2()
   private orbit = new THREE.Vector2()
@@ -35,8 +56,9 @@ export class CollectionStagePlugin implements ViewerPlugin {
   private from = new Map<PhotoMesh, Pose>()
   private morphTime = 1.2
   private lineVertices = new Float32Array(2400 * 3)
+  private lineColors = new Float32Array(2400 * 4).fill(1)
   private guides = new THREE.LineSegments(new THREE.BufferGeometry(),
-    new THREE.LineBasicMaterial({ color: '#648a76', transparent: true, opacity: .34, depthWrite: false }))
+    new THREE.LineBasicMaterial({ color: '#648a76', vertexColors: true, transparent: true, opacity: .34, depthWrite: false }))
 
   install(context: ViewerContext) {
     this.context = context
@@ -44,6 +66,7 @@ export class CollectionStagePlugin implements ViewerPlugin {
     this.preset = resolveSpatialPreset(context.config)!
     this.autoplay = this.configuredAutoplay = context.config.camera?.autoRotate ?? true
     this.guides.geometry.setAttribute('position', new THREE.BufferAttribute(this.lineVertices, 3).setUsage(THREE.DynamicDrawUsage))
+    this.guides.geometry.setAttribute('color', new THREE.BufferAttribute(this.lineColors, 4).setUsage(THREE.DynamicDrawUsage))
     this.guides.frustumCulled = false
     context.addToScene(this.guides)
     for (const [name, handler] of this.events) context.on(name, handler)
@@ -70,27 +93,38 @@ export class CollectionStagePlugin implements ViewerPlugin {
 
   private photosChanged = () => {
     this.index = Math.max(0, Math.min(this.index, this.context.photos.length - 1))
+    this.clearFoldCopies()
     this.reportIndex()
   }
 
   private select = (index: number) => { this.setSelection(index, true) }
 
-  private setSelection(index: number, reposition: boolean) {
+  private setSelection(index: number, reposition: boolean, direction = 0) {
     if (!Number.isInteger(index) || index < 0 || index >= this.context.photos.length || index === this.index) return
-    const chapter = collectionChapter(index, this.context.photos.length)
-    const newChapter = chapter.start !== collectionChapter(this.index, this.context.photos.length).start
-    if (newChapter || (reposition && this.preset === 'fold')) {
-      this.foldBay = Math.floor((index - chapter.start) / 6)
+    const count = this.context.photos.length
+    const fold = this.preset === 'fold'
+    const newChapter = collectionChapter(index, count).start !== collectionChapter(this.index, count).start
+    const wraps = fold && direction !== 0 && !this.canvas.dataset?.hasMore && Math.sign(index - this.index) !== direction
+    if (fold && reposition) {
+      const cycle = foldCycle(count)
+      const lap = Math.floor(this.foldTravel / cycle) + (wraps ? direction : 0)
+      this.foldTravel = Math.max(0, lap) * cycle + Math.floor(index / FOLD_PHOTOS_PER_BAY)
+      if (lap < 0) this.snapCamera = true
+      this.aim.set(0, 0)
+    } else if (!fold && newChapter) {
       this.time = 0
       this.wakeTime = 0
       this.aim.set(0, 0)
     }
-    if (newChapter) {
+    if (newChapter && (!fold || (reposition && !wraps))) {
       this.snapCamera = true
       this.from.clear()
     }
     this.index = index
-    if (this.suspended && this.focus?.opened) this.focus.index = index
+    if (this.suspended && this.focus?.opened) {
+      this.focus.index = index
+      this.focus.bay = undefined
+    }
     this.reportIndex()
     this.context.emit('stage:interaction')
   }
@@ -98,14 +132,18 @@ export class CollectionStagePlugin implements ViewerPlugin {
   private step = (direction: number) => {
     const count = this.context.photos.length
     if (!this.suspended && !this.focus && count && Number.isFinite(direction)) {
-      this.select((this.index + Math.sign(direction) + count) % count)
+      const step = Math.sign(direction)
+      this.setSelection((this.index + step + count) % count, true, step)
     }
   }
 
-  private openPhoto = (index: number) => {
+  private openPhoto = ({ index, surface }: { index: number; surface?: THREE.Mesh }) => {
     if (this.suspended || this.focus || !Number.isInteger(index) || !this.context.photos[index]) return
     this.setSelection(index, false)
-    this.focus = { index, amount: 0, opened: false }
+    const bay = this.preset === 'fold' && surface
+      ? Math.round((FOLD_FIRST_BAY_Z - surface.getWorldPosition(this.position).z / unit) / FOLD_BAY_SPACING)
+      : undefined
+    this.focus = { index, amount: 0, opened: false, bay }
     this.context.emit('stage:interaction')
   }
 
@@ -120,7 +158,7 @@ export class CollectionStagePlugin implements ViewerPlugin {
 
   private reset = () => {
     this.select(0)
-    this.foldBay = 0
+    this.foldTravel = 0
     this.time = 0
     this.wakeTime = 0
     this.aim.set(0, 0)
@@ -133,12 +171,20 @@ export class CollectionStagePlugin implements ViewerPlugin {
     this.configuredAutoplay = enabled
     const next = resolveSpatialPreset(this.context.config)
     if (!next || next === this.preset) return
+    this.clearFoldCopies()
     this.from.clear()
+    const nextTravel = Math.floor(this.index / FOLD_PHOTOS_PER_BAY)
+    const offset = ((this.preset === 'fold' ? this.foldTravel : 0) - (next === 'fold' ? nextTravel : 0)) * FOLD_BAY_SPACING * unit
+    this.context.camera.position.z += offset
+    this.currentLook.z += offset
     for (const photo of this.context.photos) {
-      if (photo.visible) this.from.set(photo, { position: photo.position.clone(), rotation: photo.quaternion.clone(), scale: photo.scale.x })
+      if (!photo.visible) continue
+      const position = photo.position.clone()
+      position.z += offset
+      this.from.set(photo, { position, rotation: photo.quaternion.clone(), scale: photo.scale.x })
     }
     this.preset = next
-    this.foldBay = Math.floor((this.index - collectionChapter(this.index, this.context.photos.length).start) / 6)
+    this.foldTravel = nextTravel
     this.morphTime = 0
     this.time = 0
     this.wakeTime = 0
@@ -189,7 +235,7 @@ export class CollectionStagePlugin implements ViewerPlugin {
       this.step(event.key === 'ArrowRight' ? 1 : -1)
     } else if (event.key === 'Enter') {
       event.preventDefault()
-      this.openPhoto(this.index)
+      this.openPhoto({ index: this.index })
     }
   }
 
@@ -204,18 +250,12 @@ export class CollectionStagePlugin implements ViewerPlugin {
     const usableHeight = Math.max(.46, 1 - (top + bottom) / height)
     const centerY = (top - bottom) / height
     const tide = this.preset === 'tide'
-    if (this.preset === 'fold' && count > 1) {
+    if (this.preset === 'fold') {
       const factor = compact ? .74 : 1
-      // Keep room for both faces of the nearest complete bay at every stop.
-      const setback = Math.max(9.8, 4 * factor / (aspect * tangent * .86), 2.75 / (tangent * usableHeight))
-      const start = 8.75 + setback
-      const lastBay = Math.floor((count - 1) / 6)
-      const end = start - lastBay * 3.58
-      const base = start - Math.min(this.foldBay, lastBay) * 3.58
-      const cruise = (base - end) * .5 * (1 - Math.cos(this.time * .22))
-      const z = THREE.MathUtils.clamp(base - cruise - this.orbit.x * (start - end), end, start + 1.2)
-      this.eye.set(foldCenter(z) * factor, .45 + this.orbit.y * 1.35, z)
-      this.look.set(foldCenter(z - setback) * factor, centerY * tangent * setback + this.orbit.y * .5, z - setback)
+      const setback = Math.max(9.8, 4.35 * factor / (aspect * tangent * .86), 2.75 / (tangent * usableHeight))
+      const z = FOLD_FIRST_BAY_Z + setback - this.foldTravel * FOLD_BAY_SPACING
+      this.eye.set(foldCenter(z) * factor + this.orbit.x, .45 + this.orbit.y * 1.35, z)
+      this.look.set(foldCenter(z - setback) * factor + this.orbit.x * 2.15, centerY * tangent * setback + this.orbit.y * .5, z - setback)
     } else {
       const columns = tideColumns(count, compact)
       const halfWidth = count === 1 ? 3.45 : tide ? (columns - 1) * 1.11 + 1.1 : compact ? 6.45 : 7.85
@@ -235,27 +275,118 @@ export class CollectionStagePlugin implements ViewerPlugin {
     camera.getWorldDirection(this.focusPosition).multiplyScalar(6 * unit).add(camera.position)
   }
 
+  private advanceFold(dt: number, count: number, hasMore: boolean) {
+    const lastBay = foldBayCount(count) - 1
+    const previousBay = Math.floor(this.foldTravel)
+    this.foldLoadCooldown -= dt
+    if (hasMore && lastBay - previousBay <= 8 && (this.foldRequestedCount !== count || this.foldLoadCooldown <= 0)) {
+      this.foldRequestedCount = count
+      this.foldLoadCooldown = 8
+      this.context.emit('stage:load-more')
+    }
+    this.foldTravel += dt * .56
+    if (hasMore) this.foldTravel = Math.min(this.foldTravel, lastBay)
+    const currentBay = Math.floor(this.foldTravel)
+    if (currentBay === previousBay) return
+    const bay = currentBay % foldCycle(count)
+    if (bay > lastBay) return
+    this.index = bay * FOLD_PHOTOS_PER_BAY
+    this.reportIndex()
+  }
+
+  private foldBays(index: number, window: FoldWindow): FoldBays {
+    const { cycle, nearBay, farBay, hasMore } = window
+    const bay = Math.floor(index / FOLD_PHOTOS_PER_BAY)
+    const first = bay + (hasMore ? 0 : Math.max(0, Math.ceil((nearBay - bay) / cycle)) * cycle)
+    const last = hasMore ? Math.min(bay, farBay) : farBay
+    const nearest = first + THREE.MathUtils.clamp(Math.round((this.foldTravel - first) / cycle),
+      0, Math.max(0, Math.floor((last - first) / cycle))) * cycle
+    const primary = this.focus?.index === index ? this.focus.bay ?? nearest : nearest
+    return { first, last, primary }
+  }
+
+  private foldScale(window: FoldWindow, bay: number, z: number) {
+    const lapStart = Math.floor(bay / window.cycle) * window.cycle
+    const previousLastBay = lapStart - window.cycle + foldBayCount(window.count) - 1
+    // Bring the next lap into view as the last bay of the current lap is presented.
+    const reveal = lapStart === 0 ? 1 : THREE.MathUtils.smoothstep(this.foldTravel, previousLastBay, previousLastBay + .65)
+    return reveal * foldDepthFade(window.cameraZ - z)
+  }
+
+  private placeFoldCopies(photo: PhotoMesh, index: number, window: FoldWindow, bays: FoldBays, scale: number) {
+    const copies = this.foldCopies.get(photo) ?? []
+    let used = 0
+    const back = photo.getObjectByName('photo-back') as THREE.Mesh | undefined
+    for (let bay = bays.first; bay <= bays.last; bay += window.cycle) {
+      if (bay === bays.primary) continue
+      const pose = foldPose(index, window.total, this.time, window.compact, bay)
+      const copyScale = scale * this.foldScale(window, bay, pose.z)
+      if (copyScale <= 0) continue
+      let copy = copies[used++]
+      if (!copy) {
+        copy = new THREE.Mesh(photo.geometry, photo.material)
+        copy.userData = photo.userData
+        if (back) {
+          const reverse = new THREE.Mesh(back.geometry, back.material)
+          reverse.position.copy(back.position)
+          reverse.quaternion.copy(back.quaternion)
+          reverse.userData = photo.userData
+          copy.add(reverse)
+        }
+        copies.push(copy)
+        this.foldCopies.set(photo, copies)
+        this.context.addToScene(copy)
+      }
+      copy.position.set(pose.x * unit, pose.y * unit, pose.z * unit)
+      copy.rotation.set(pose.rx, pose.ry, pose.rz)
+      copy.scale.setScalar(copyScale)
+      copy.visible = true
+    }
+    for (let i = used; i < copies.length; i++) copies[i]!.visible = false
+    if (used) {
+      const surfaces = back ? [photo, back] : [photo]
+      for (let i = 0; i < used; i++) {
+        const copy = copies[i]!
+        surfaces.push(copy)
+        if (back) surfaces.push(copy.children[0] as THREE.Mesh)
+      }
+      photo.userData.presentation = surfaces
+    } else if (copies.length) delete photo.userData.presentation
+  }
+
+  private clearFoldCopies() {
+    for (const [photo, copies] of this.foldCopies) {
+      delete photo.userData.presentation
+      for (const copy of copies) copy.removeFromParent()
+    }
+    this.foldCopies.clear()
+  }
+
   update(delta: number) {
     const { photos } = this.context
     const chapter = collectionChapter(this.index, photos.length)
+    const fold = this.preset === 'fold'
+    const count = fold ? photos.length : chapter.count
+    const hasMore = !!this.canvas.dataset?.hasMore
     const camera = this.context.camera as THREE.PerspectiveCamera
     const reduced = this.context.reducedMotion()
     const dt = Math.min(delta, .05)
-    if (this.autoplay && !reduced && !this.suspended && !this.drag && !this.focus && chapter.count > 1) {
+    if (this.autoplay && !reduced && !this.suspended && !this.drag && !this.focus && dt > 0 && (count > 1 || (fold && count > 0))) {
       this.time += dt
+      if (fold) this.advanceFold(dt, count, hasMore)
       if (this.time - this.wakeTime >= 2) {
         this.wakeTime = this.time
         this.context.emit('stage:interaction')
       }
     }
-    if (!chapter.count) {
+    if (!count) {
       this.guides.visible = false
       return
     }
     const blend = reduced || this.snapCamera ? 1 : 1 - Math.exp(-dt * 7.4)
     this.orbit.lerp(this.aim, this.orbit.distanceToSquared(this.aim) < 1e-7 ? 1 : blend)
     const compact = camera.aspect < .82
-    this.frameCamera(camera, chapter.count, compact, blend)
+    this.frameCamera(camera, count, compact, blend)
     this.snapCamera = false
     this.morphTime += reduced ? 1.2 : dt
     if (this.morphTime >= 1.2) this.from.clear()
@@ -267,19 +398,45 @@ export class CollectionStagePlugin implements ViewerPlugin {
       focus.amount = THREE.MathUtils.clamp(focus.amount + (target ? travel : -travel), 0, 1)
     }
 
+    const cameraZ = camera.position.z / unit
+    const cycle = foldCycle(count)
+    const lastRevealedLap = Math.floor((this.foldTravel + cycle - foldBayCount(count) + 1) / cycle)
+    const window: FoldWindow | null = fold ? {
+      cameraZ, count, total: Math.max(count, Number(this.canvas.dataset?.photoTotal) || count), compact, hasMore, cycle,
+      nearBay: Math.max(0, Math.ceil((FOLD_FIRST_BAY_Z - cameraZ - 2) / FOLD_BAY_SPACING)),
+      farBay: Math.min((lastRevealedLap + 1) * cycle - 1,
+        Math.floor((FOLD_FIRST_BAY_Z - cameraZ + FOLD_HORIZON) / FOLD_BAY_SPACING))
+    } : null
+    const zoom = focus ? THREE.MathUtils.smoothstep(focus.amount, 0, 1) : 0
     for (let i = 0; i < photos.length; i++) {
       const photo = photos[i]
-      const local = i - chapter.start
-      photo.visible = local >= 0 && local < chapter.count
-      if (!photo.visible) continue
-      const zoom = focus ? THREE.MathUtils.smoothstep(focus.amount, 0, 1) : 0
-      const pose = collectionPose(this.preset, local, chapter.count, this.time, compact, zoom)
+      const local = fold ? i : i - chapter.start
+      const bays = window && this.foldBays(i, window)
+      photo.visible = window && bays
+        ? (bays.first >= window.nearBay && bays.first <= bays.last) || focus?.index === i
+        : local >= 0 && local < count
+      if (!photo.visible) {
+        const copies = this.foldCopies.get(photo)
+        if (copies) {
+          for (const copy of copies) copy.visible = false
+          delete photo.userData.presentation
+        }
+        continue
+      }
+      const pose = window && bays ? foldPose(i, window.total, this.time, compact, bays.primary)
+        : collectionPose(this.preset, local, count, this.time, compact, zoom)
       this.position.set(pose.x * unit, pose.y * unit, pose.z * unit)
       this.rotation.setFromEuler(this.euler.set(pose.rx, pose.ry, pose.rz))
       const { width, height } = (photo.geometry as THREE.PlaneGeometry).parameters
-      const fitLimit = chapter.count === 1 ? 5.5 : 2.12
+      const fitLimit = count === 1 && !fold ? 5.5 : 2.12
       let scale = Math.min(pose.size * unit / Math.sqrt(width * height), fitLimit * unit / Math.max(width, height))
-      if (i === this.index && chapter.count > 1) scale *= 1.04
+      if (i === this.index && count > 1 && !bays) scale *= 1.04
+      if (window && bays) {
+        if (bays.first + window.cycle <= bays.last || this.foldCopies.has(photo)) {
+          this.placeFoldCopies(photo, i, window, bays, scale)
+        }
+        scale *= this.foldScale(window, bays.primary, pose.z)
+      }
       if (focus?.index === i) {
         this.position.lerp(this.focusPosition, zoom)
         this.rotation.slerp(camera.quaternion, zoom)
@@ -310,7 +467,7 @@ export class CollectionStagePlugin implements ViewerPlugin {
         material.needsUpdate = true
       }
     }
-    this.drawGuides(chapter.count, compact, focus ? THREE.MathUtils.smoothstep(focus.amount, 0, 1) : 0)
+    this.drawGuides(count, compact, zoom)
     if (focus && !focus.opened && focus.amount === 1) {
       focus.opened = true
       this.context.emit('stage:open', focus.index)
@@ -318,10 +475,15 @@ export class CollectionStagePlugin implements ViewerPlugin {
   }
 
   private drawGuides(count: number, compact: boolean, focus: number) {
-    this.guides.visible = count > 1
-    if (count <= 1) return
+    const fold = this.preset === 'fold'
+    this.guides.visible = fold || count > 1
+    if (!this.guides.visible) return
     let offset = 0
+    const cameraZ = this.context.camera.position.z / unit
     const line = (x: number, y: number, z: number, nextX: number, nextY: number, nextZ: number) => {
+      const color = offset / 3 * 4
+      this.lineColors[color + 3] = fold ? foldDepthFade(cameraZ - z) : 1
+      this.lineColors[color + 7] = fold ? foldDepthFade(cameraZ - nextZ) : 1
       this.lineVertices[offset++] = x * unit
       this.lineVertices[offset++] = y * unit
       this.lineVertices[offset++] = z * unit
@@ -341,11 +503,14 @@ export class CollectionStagePlugin implements ViewerPlugin {
           line(x, y + .22 * z, z - .34, next, y + .22 * nextZ, nextZ - .34)
         }
       }
-    } else if (this.preset === 'fold') {
+    } else if (fold) {
       const factor = compact ? .74 : 1
-      for (let bay = 0; bay <= Math.ceil(count / 6) + 1; bay++) {
-        const z = 12.22 - bay * 3.58, x = foldCenter(z) * factor
-        const end = z - 3.58, next = foldCenter(end) * factor
+      const guideStart = FOLD_FIRST_BAY_Z + FOLD_BAY_SPACING
+      const first = Math.floor((guideStart - cameraZ) / FOLD_BAY_SPACING)
+      const last = Math.ceil((guideStart - cameraZ + FOLD_HORIZON) / FOLD_BAY_SPACING)
+      for (let bay = first; bay <= last; bay++) {
+        const z = guideStart - bay * FOLD_BAY_SPACING, x = foldCenter(z) * factor
+        const end = z - FOLD_BAY_SPACING, next = foldCenter(end) * factor
         const width = 4.17 * factor
         line(x - width, -2.83, z, x + width, -2.83, z)
         line(x - width, 2.93, z, x + width, 2.93, z)
@@ -376,6 +541,7 @@ export class CollectionStagePlugin implements ViewerPlugin {
     }
     this.guides.geometry.setDrawRange(0, offset / 3)
     this.guides.geometry.attributes.position!.needsUpdate = true
+    this.guides.geometry.attributes.color!.needsUpdate = true
   }
 
   uninstall() {
@@ -390,6 +556,7 @@ export class CollectionStagePlugin implements ViewerPlugin {
     this.guides.removeFromParent()
     this.guides.geometry.dispose()
     this.guides.material.dispose()
+    this.clearFoldCopies()
     this.from.clear()
     this.focus = null
     for (const photo of this.context.photos) {
