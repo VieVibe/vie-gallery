@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref, onMounted, onUnmounted, watch, nextTick, type CSSProperties } from 'vue'
 import type * as Three from 'three'
-import { CURATED_STYLES, PHOTO_ARRANGEMENTS, SPATIAL_PALETTE, SPATIAL_PRESETS, applyCuratedStyle, applySpatialPreset, resolveCuratedStyle, resolvePhotoArrangement, resolveSpatialPreset, type CuratedStyle, type PhotoArrangement, type SpatialPreset, type ViewerConfig } from '@vie/gallery-contracts'
+import { CURATED_STYLES, PHOTO_ARRANGEMENTS, SPATIAL_PALETTE, SPATIAL_PRESETS, applyCuratedStyle, applySpatialPreset, isPhotoChoreography, isSpatialPreset, resolveCuratedStyle, resolvePhotoArrangement, resolveSpatialPreset, type CuratedStyle, type PhotoArrangement, type SpatialPreset, type ViewerConfig } from '@vie/gallery-contracts'
 import { isTrustedPreviewMessage, normalizeViewerConfig, serializeViewerConfig, ViewerConfigValidationError } from '@vie/gallery-contracts'
 import { useViewerState } from './composables/useViewerState'
 import { readShareToken } from './api/client'
@@ -177,6 +177,7 @@ const stagePhoto = computed(() => viewer.photos.value[currentPhotoIndex.value])
 const showPhotoDetails = computed(() => (stageActive.value && !theatre.value.active) || photoFocus.value)
 const sceneConfig = computed(() => viewer.viewerConfig.value)
 const collectionPreset = computed(() => sceneConfig.value ? resolveSpatialPreset(sceneConfig.value) : 'tide')
+const photoChoreography = computed(() => isPhotoChoreography(collectionPreset.value))
 const lockedShare = computed(() => hasShareToken || (!creatorPreview && !!collectionPreset.value))
 const styleChoices = computed(() => collectionPreset.value ? SPATIAL_PRESETS : CURATED_STYLES)
 const sceneStyle = computed<CSSProperties>(() => ({
@@ -221,7 +222,7 @@ async function selectStyle(mode: CuratedStyle | SpatialPreset) {
   styleBusy.value = true
   try {
     const current = active.getRequestedConfig()
-    const next = mode === 'tide' || mode === 'fold' || mode === 'space'
+    const next = isSpatialPreset(mode)
       ? applySpatialPreset(current, mode) : applyCuratedStyle(current, mode)
     if (next.camera) next.camera.autoRotate = current.camera?.autoRotate ?? false
     await active.replaceConfig(next)
@@ -250,6 +251,9 @@ const hoverTagPosition = computed(() => ({
 
 // 电影级巡航与交互增强
 const isAutoTour = ref(false)
+const tourLabel = computed(() => photoChoreography.value
+  ? (isAutoTour.value ? '暂停动效' : '播放动效')
+  : (isAutoTour.value ? '暂停漫游' : '自动漫游'))
 const hoveredPhoto = ref<{ index: number; title: string } | null>(null)
 const hoveredScreenPos = ref<{ x: number; y: number }>({ x: 0, y: 0 })
 const showApm = ref(false)
@@ -589,7 +593,7 @@ function bindCanvasInteractions() {
       if (lastHoveredMesh) {
         lastHoveredMesh = null
       }
-      canvas.style.cursor = collectionPreset.value ? 'grab' : 'default'
+      canvas.style.cursor = collectionPreset.value && !photoChoreography.value ? 'grab' : 'default'
       hoveredPhoto.value = null
       engine.getEventBus().emit('theatre:hover', null)
     }
@@ -801,6 +805,8 @@ function resetView() {
     :class="{
       'is-spatial': viewMode === '3d' && (viewer.isReady.value || isEmbedPreview()),
       'is-collection': viewMode === '3d' && !!collectionPreset,
+      'has-photo-choreography': viewMode === '3d' && photoChoreography,
+      'has-dark-stage': viewMode === '3d' && collectionPreset === 'domino',
       'is-editorial': viewMode === '2d',
       'is-embedded': isEmbedPreview(),
       'is-live-preview': liveWindowPreview,
@@ -830,7 +836,7 @@ function resetView() {
     <!-- 3. Admin 嵌入预览：草稿/未公开时仍渲染 WebGL 沙盒 -->
     <div v-else-if="isEmbedPreview() && viewMode === '3d' && (viewer.isReady.value || viewer.isEmpty.value)" class="gallery-viewport embed-preview">
       <div class="canvas-container">
-        <canvas ref="canvasRef" class="webgl-canvas" data-presentation="preview" :data-has-more="viewer.hasMore.value || undefined" :data-photo-total="viewer.total.value" tabindex="0" aria-label="展厅预览，拖动探索，按 Enter 查看当前照片。"></canvas>
+        <canvas ref="canvasRef" class="webgl-canvas" :class="{ 'choreography-canvas': photoChoreography }" data-presentation="preview" :data-has-more="viewer.hasMore.value || undefined" :data-photo-total="viewer.total.value" tabindex="0" :aria-label="photoChoreography ? '照片编排预览，按 Enter 查看当前照片。' : '展厅预览，拖动探索，按 Enter 查看当前照片。'"></canvas>
       </div>
     </div>
 
@@ -893,7 +899,7 @@ function resetView() {
             <Icon :name="viewMode === '3d' ? 'grid' : 'cube'" :size="16" />
             <span>{{ viewMode === '3d' ? '平面展览' : '空间漫游' }}</span>
           </button>
-          <button v-if="show3dHud && !theatre.active && !theatre.reducedMotion" type="button" class="quiet-button tour-button" :aria-label="isAutoTour ? '暂停漫游' : '自动漫游'" :aria-pressed="isAutoTour" @click="toggleAutoTour"><Icon :name="isAutoTour ? 'pause' : 'play'" :size="15" /><span>{{ isAutoTour ? '暂停漫游' : '自动漫游' }}</span></button>
+          <button v-if="show3dHud && !isImmersive && !theatre.active && !theatre.reducedMotion" type="button" class="quiet-button tour-button" :aria-label="tourLabel" :aria-pressed="isAutoTour" @click="toggleAutoTour"><Icon :name="isAutoTour ? 'pause' : 'play'" :size="15" /><span>{{ tourLabel }}</span></button>
           <button v-if="!lockedShare && show3dHud && stageActive && !collectionPreset && !theatre.active && !theatre.reducedMotion" type="button" class="quiet-button choreography-button" aria-label="播放照片编排" :disabled="theatreBusy" @click="sendTheatreCommand({ type: 'play' })"><Icon name="grid" :size="15" /><span>编排演出</span></button>
           <button v-if="show3dHud && stageActive && !theatre.active" ref="immersiveButton" type="button" class="quiet-button immersive-button" aria-label="沉浸欣赏" :aria-pressed="isImmersive" @click="setImmersive(true)"><Icon name="eye" :size="17" /></button>
           <button v-if="fullscreenAvailable && (viewMode === '3d' || isFullscreen)" type="button" class="quiet-button fullscreen-button" :aria-label="isFullscreen ? '退出全屏' : '全屏欣赏'" :aria-pressed="isFullscreen" @click="toggleFullscreen"><Icon name="maximize" :size="17" /></button>
@@ -904,7 +910,7 @@ function resetView() {
         <h1>{{ viewer.gallery.value?.title || '光影之间' }}</h1>
         <p>{{ viewer.total.value }} 件作品 · 摄影展览</p>
       </div>
-      <div v-if="show3dHud" class="spatial-controls" :inert="isImmersive || undefined" @keydown.esc="handleSpatialOptionsEscape">
+      <div v-if="show3dHud" class="spatial-controls" :inert="(isImmersive && !photoChoreography) || undefined" @keydown.esc="handleSpatialOptionsEscape">
       <div v-if="showPhotoDetails" class="stage-row">
       <div class="stage-info">
         <div class="stage-counter" aria-live="polite" aria-atomic="true"><span>{{ String(currentPhotoIndex + 1).padStart(2, '0') }}</span><span aria-hidden="true">/</span><span>{{ String(viewer.photos.value.length).padStart(2, '0') }}</span></div>
@@ -912,11 +918,12 @@ function resetView() {
         <p>{{ photoFocus ? '逐张欣赏，点击作品查看大图' : stageCaption }}</p>
       </div>
       <div class="stage-navigation" aria-label="逐张浏览">
+        <button v-if="isImmersive && photoChoreography && !theatre.reducedMotion" type="button" :aria-label="tourLabel" :aria-pressed="isAutoTour" @click="toggleAutoTour"><Icon :name="isAutoTour ? 'pause' : 'play'" :size="15" /></button>
         <button type="button" aria-label="上一张作品" :disabled="viewer.photos.value.length < 2" @click="stepStage(-1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6M8 12h13"/></svg></button>
         <button type="button" aria-label="下一张作品" :disabled="viewer.photos.value.length < 2" @click="stepStage(1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6M3 12h13"/></svg></button>
       </div>
       </div>
-      <div v-if="!lockedShare && (!theatre.active || photoFocus)" class="spatial-style-row">
+      <div v-if="!lockedShare && !isImmersive && (!theatre.active || photoFocus)" class="spatial-style-row">
       <nav class="composition-dock" aria-label="展示风格">
         <button v-for="style in styleChoices" :key="style.id" type="button" :aria-pressed="(collectionPreset ?? selectedStyle) === style.id" :disabled="styleBusy" @click="selectStyle(style.id)">
           <svg viewBox="0 0 44 24" aria-hidden="true"><path v-if="style.id === 'helix'" d="M4 19C3 1 39 1 39 8S4 24 4 16S38 9 40 4"/><ellipse v-else-if="style.id === 'carousel'" cx="22" cy="12" rx="18" ry="8"/><path v-else-if="style.id === 'space'" d="M2 12a20 9 0 1 0 40 0 20 9 0 1 0-40 0m12 0a8 4 0 1 0 16 0 8 4 0 1 0-16 0M7 6l8 4m14 4 8 4"/><path v-else-if="style.id === 'filmstrip'" d="M2 7h9v10H2zM16 3h12v18H16zM33 7h9v10h-9z"/><path v-else-if="style.id === 'book'" d="M22 6Q12 1 3 5v16q10-4 19 0 9-4 19 0V5q-9-4-19 1v15M22 6q10-7 14-4v14q-8 0-14 5"/><path v-else-if="style.id === 'tunnel' || style.id === 'fold'" d="m2 2 40 20M2 22 42 2M10 4h24v16H10zM17 8h10v8H17z"/><path v-else d="M2 12Q12 -2 22 12T42 12M2 20Q12 6 22 20T42 20"/></svg>
@@ -934,13 +941,13 @@ function resetView() {
         <PhotoTheatreControls :state="theatre" :total="viewer.photos.value.length" :busy="theatreBusy" @command="sendTheatreCommand" />
       </div>
         <p v-if="viewer.error.value" class="pagination-error" role="alert">{{ viewer.error.value }}</p>
-        <button v-if="viewer.hasMore.value" class="load-more-floating" type="button" :disabled="viewer.loadingMore.value" @click="loadNextStageChapter">
+        <button v-if="viewer.hasMore.value && (!isImmersive || photoChoreography)" class="load-more-floating" type="button" :disabled="viewer.loadingMore.value" @click="loadNextStageChapter">
           {{ viewer.loadingMore.value ? '正在加载…' : viewer.error.value ? '重试加载照片' : `继续浏览 · 还有 ${viewer.total.value - viewer.photos.value.length} 张` }}
         </button>
       </div>
       <template v-if="isImmersive">
         <button ref="immersiveExit" type="button" class="immersive-exit" aria-label="退出沉浸欣赏" @click="setImmersive(false)"><Icon name="x" :size="16" /><span>退出沉浸</span></button>
-        <p class="immersive-help">{{ String(stageIndex + 1).padStart(2, '0') }} / {{ String(viewer.photos.value.length).padStart(2, '0') }}<span>拖动或使用方向键，慢慢欣赏</span></p>
+        <p v-if="!photoChoreography" class="immersive-help">{{ String(stageIndex + 1).padStart(2, '0') }} / {{ String(viewer.photos.value.length).padStart(2, '0') }}<span>拖动或使用方向键，慢慢欣赏</span></p>
       </template>
       <!-- APM Real-time Dashboard Capsule -->
       <aside v-if="diagnosticsEnabled && showApm && viewMode === '3d' && apmMetrics" class="apm-dashboard">
@@ -988,10 +995,11 @@ function resetView() {
 
       <!-- Mode 1: 3D Spatial WebGL Canvas -->
       <div v-if="viewMode === '3d'" class="canvas-container" :class="{ 'has-theatre-controls': showTheatreControls, 'is-theatre-active': theatre.active }">
-        <canvas ref="canvasRef" class="webgl-canvas" :class="{ 'filmstrip-canvas': stageActive && currentArrangement === 'filmstrip' && !theatre.active && !isImmersive }" tabindex="0" :data-has-more="viewer.hasMore.value || undefined" :data-photo-total="viewer.total.value" :aria-label="showPhotoDetails ? '照片空间，拖动、滚轮或左右方向键切换作品，Enter 查看大图。' : '照片空间，可拖动探索、滚动缩放。也可切换平面展览，用键盘逐张浏览照片。'"></canvas>
+        <canvas ref="canvasRef" class="webgl-canvas" :class="{ 'filmstrip-canvas': stageActive && currentArrangement === 'filmstrip' && !theatre.active && !isImmersive, 'choreography-canvas': photoChoreography }" tabindex="0" :data-presentation="lockedShare ? 'locked' : undefined" :data-has-more="viewer.hasMore.value || undefined" :data-photo-total="viewer.total.value" :aria-label="photoChoreography ? '照片编排，可用左右方向键选图，Enter 查看大图。' : showPhotoDetails ? '照片空间，拖动、滚轮或左右方向键切换作品，Enter 查看大图。' : '照片空间，可拖动探索、滚动缩放。也可切换平面展览，用键盘逐张浏览照片。'"></canvas>
         <div v-if="!engineReady" class="scene-loading" role="status"><span class="scene-loading-line" aria-hidden="true"></span><span>正在布置展厅…</span><button type="button" @click="viewMode = '2d'">先看平面展览</button></div>
         <div v-else-if="!theatre.active" class="spatial-tips">
-          <p><span class="desktop-tip">{{ collectionPreset ? '拖动探索 · 方向键选图' : showPhotoDetails ? '拖动 / 方向键切换' : '拖动探索 · 滚动缩放' }}</span><span class="touch-tip">{{ collectionPreset ? '拖动场景' : '左右滑动浏览' }}</span><span class="tip-separator" aria-hidden="true">·</span>点击作品查看大图</p>
+          <p v-if="photoChoreography">点击作品查看大图<span class="desktop-tip"> · 方向键选图</span></p>
+          <p v-else><span class="desktop-tip">{{ collectionPreset ? '拖动探索 · 方向键选图' : showPhotoDetails ? '拖动 / 方向键切换' : '拖动探索 · 滚动缩放' }}</span><span class="touch-tip">{{ collectionPreset ? '拖动场景' : '左右滑动浏览' }}</span><span class="tip-separator" aria-hidden="true">·</span>点击作品查看大图</p>
         </div>
       </div>
 

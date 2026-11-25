@@ -2,12 +2,12 @@ import { test, expect, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { mkdir } from 'node:fs/promises'
-import { applyCuratedStyle, applySpatialPreset, SPATIAL_PALETTE, VIEWER_PRESETS, type SpatialPreset } from '@vie/gallery-contracts'
+import { applyCuratedStyle, applySpatialPreset, isSpatialPreset, SPATIAL_PALETTE, VIEWER_PRESETS, type SpatialPreset } from '@vie/gallery-contracts'
 import { mockGallery } from '../../gallery-viewer/e2e/helpers/mockGallery'
 
 async function studio(page: Page, arrangement: 'helix' | 'book' | 'tunnel' | SpatialPreset = 'helix') {
   const base = VIEWER_PRESETS['jade-flow']
-  const config = arrangement === 'tide' || arrangement === 'fold' || arrangement === 'space'
+  const config = isSpatialPreset(arrangement)
     ? applySpatialPreset(base, arrangement) : applyCuratedStyle(base, arrangement)
   config.camera.autoRotate = false
   let draft = JSON.stringify(config), saves = 0, failSave = false
@@ -90,15 +90,17 @@ test('quick composition saves a light spatial preset and restores it on reload',
   await page.locator('.workspace-spatial > summary').click()
   const picker = page.locator('.quick-styles')
   await expect(picker).toContainText('访客进入空间漫游时将看到发布的场景。')
-  await expect(picker.getByRole('button')).toHaveCount(3)
+  await expect(picker.getByRole('button')).toHaveCount(6)
   await expect(picker.getByRole('button', { name: /^潮汐/ })).toHaveAttribute('aria-pressed', 'true')
   await expect(picker.getByRole('button', { pressed: true })).toHaveCount(1)
   await picker.getByRole('button', { name: /^折廊/ }).click()
   await expect.poll(() => data.draft().layout.params.arrangement).toBe('fold')
   expect(data.draft().background).toEqual(SPATIAL_PALETTE)
+  await picker.getByRole('button', { name: /^双扇开合/ }).click()
+  await expect.poll(() => data.draft().layout.params.arrangement).toBe('fans')
   await page.reload()
   await page.locator('.workspace-spatial > summary').click()
-  await expect(picker.getByRole('button', { name: /^折廊/ })).toHaveAttribute('aria-pressed', 'true')
+  await expect(picker.getByRole('button', { name: /^双扇开合/ })).toHaveAttribute('aria-pressed', 'true')
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(data.errors).toEqual([])
@@ -118,17 +120,17 @@ test('quick composition restores the saved choice when a save fails', async ({ p
   expect(data.saves()).toBe(1)
 })
 
-test('the creator preview switches live between the three spatial scenes', async ({ page }) => {
+test('the creator preview switches live to a photo choreography', async ({ page }) => {
   const data = await studio(page, 'tide')
   await page.goto('/app/galleries/studio/config')
   const choices = page.getByRole('region', { name: '默认 3D 展示效果' })
-  await expect(choices.getByRole('button')).toHaveCount(3)
+  await expect(choices.getByRole('button')).toHaveCount(6)
   await expect(page.getByRole('tab', { name: '下载权限' })).toBeVisible()
   const preview = page.frameLocator('iframe[title="展厅实时预览"]')
   await expect(preview.locator('.viewer-app-root')).toHaveClass(/is-collection/)
-  await choices.getByRole('button', { name: /^空间/ }).click()
-  await expect.poll(() => data.draft().layout.params.arrangement).toBe('space')
-  await expect.poll(() => preview.locator('canvas').evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__?.snapshot().requested.layout.params?.arrangement)).toBe('space')
+  await choices.getByRole('button', { name: /^连锁翻面/ }).click()
+  await expect.poll(() => data.draft().layout.params.arrangement).toBe('domino')
+  await expect.poll(() => preview.locator('canvas').evaluate(() => window.__VIE_VIEWER_DIAGNOSTICS__?.snapshot().requested.layout.params?.arrangement)).toBe('domino')
   await preview.locator('canvas').press('Enter')
   await expect(preview.getByRole('dialog')).toBeVisible()
   await preview.getByRole('button', { name: '关闭大图 (Esc)' }).click()

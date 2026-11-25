@@ -184,8 +184,10 @@
   color: var(--text-main);
   box-shadow: 0 10px 32px #31564012;
 }
-.is-collection .composition-dock { border-radius: 8px; background: #edf4eb; padding: 3px; }
-.is-collection .composition-dock button { color: #35523f; border-radius: 6px; }
+.is-collection .composition-dock { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-radius: 8px; background: #edf4eb; padding: 3px; }
+.is-collection .composition-dock button { gap: 4px; padding-inline: 4px; color: #35523f; border-radius: 6px; }
+.is-collection .composition-dock svg { width: 19px; flex: 0 0 19px; }
+.webgl-canvas.choreography-canvas { cursor: default; }
 .is-collection .composition-dock button:hover:not(:disabled) { background: #dcebdd; }
 .is-collection .composition-dock button[aria-pressed='true'] { background: #d4e7d6; color: #224b34; }
 .is-collection .stage-navigation button { border-radius: 8px; }
@@ -196,10 +198,13 @@
 .is-collection .stage-info { align-items: center; }
 .is-collection .spatial-controls :focus-visible { outline-color: var(--accent); }
 .is-collection .spatial-controls .pagination-error { color: #954e37; }
+.is-immersive.has-photo-choreography .spatial-controls { opacity: 1; pointer-events: auto; }
+.is-immersive.has-photo-choreography .load-more-floating { display: block; }
 .is-collection .photo-hover-tag { border-color: #c7d8c8; background: #f9fcf6ed; }
 .is-collection .immersive-exit { color: #2c4c38; background: #f9fcf6ed; border-color: #acc7b2; }
 .is-collection .immersive-help,
 .is-collection .immersive-help span { color: #4b6455; }
+.is-collection.has-dark-stage :is(.exhibition-heading, .exhibition-heading p, .spatial-tips, .immersive-help, .immersive-help span) { color: #f2f6fa; }
 .is-collection .embed-preview { background: transparent; }
 @media (max-width: 700px) {
   .is-collection .exhibition-heading { top: 92px; }
@@ -209,6 +214,7 @@
   .is-collection .immersive-button { top: 90px; right: 70px; }
   .is-collection .exhibition-heading { max-width: calc(100% - 152px); }
   .is-collection .spatial-controls { padding: 8px 10px; }
+  .is-collection .composition-dock { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-height: 560px) {
   .is-collection .exhibition-heading { top: 77px; }

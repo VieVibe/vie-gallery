@@ -7,9 +7,9 @@ export const FOLD_BAY_SPACING = 3.58
 export const FOLD_FIRST_BAY_Z = 8.75
 const TAU = Math.PI * 2
 
-export function collectionChapter(index: number, count: number) {
-  const start = Math.floor(Math.max(0, Math.min(index, count - 1)) / COLLECTION_CHAPTER_SIZE) * COLLECTION_CHAPTER_SIZE
-  return { start, count: Math.min(COLLECTION_CHAPTER_SIZE, count - start) }
+export function collectionChapter(index: number, count: number, size = COLLECTION_CHAPTER_SIZE) {
+  const start = Math.floor(Math.max(0, Math.min(index, count - 1)) / size) * size
+  return { start, count: Math.min(size, count - start) }
 }
 
 export function tideColumns(count: number, compact: boolean) {

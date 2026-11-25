@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ViewerConfigValidatorTest {
     @Test void approvedSpatialScenesCanBePublished() {
         var validator = new ViewerConfigValidator();
-        for (String arrangement : new String[]{"tide", "fold", "space"}) {
+        for (String arrangement : new String[]{"tide", "fold", "space", "burst", "domino", "fans"}) {
             assertDoesNotThrow(() -> validator.validate("{\"layout\":{\"params\":{\"composition\":\"curated\",\"arrangement\":\"" + arrangement + "\"}}}", 1));
         }
     }

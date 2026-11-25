@@ -1,6 +1,6 @@
 import { MotionAtmosphere } from './MotionAtmosphere'
 import * as THREE from 'three'
-import { applySpatialTheme, mergeViewerConfig, normalizeViewerConfig, resolvePhotoEffect, resolveSpatialPreset, ViewerConfigValidationError, type PublicPhoto } from '@vie/gallery-contracts'
+import { applySpatialTheme, isPhotoChoreography, mergeViewerConfig, normalizeViewerConfig, resolvePhotoEffect, resolveSpatialPreset, ViewerConfigValidationError, type PublicPhoto } from '@vie/gallery-contracts'
 import { PhotoScene } from './PhotoScene'
 import { TexturePool, loadPhotoTexture } from './TexturePool'
 import { FrameClock } from './FrameClock'
@@ -306,7 +306,8 @@ export class ViewerEngine {
       this.qualityReason = null
     }
     const context = this.pluginContext ?? this.createContext()
-    const collection = !!resolveSpatialPreset(candidate)
+    const spatialPreset = resolveSpatialPreset(candidate)
+    const collection = !!spatialPreset
     const effective = collection ? applySpatialTheme(candidate) : structuredClone(candidate)
     effective.effects.photo = resolvePhotoEffect(effective)
     effective.quality = this.effectiveQuality
@@ -329,7 +330,7 @@ export class ViewerEngine {
       ['Layout', effective.layout.params?.composition !== 'curated'],
       ['PhotoFade', effective.layout.params?.composition !== 'curated'],
       ['SpatialStage', effective.layout.params?.composition === 'curated' && !collection],
-      ['CollectionStage', collection], ['Lighting', true], ['Background', !collection],
+      ['CollectionStage', collection], ['Lighting', true], ['Background', !collection || isPhotoChoreography(spatialPreset)],
       ['PhotoSurface', effective.effects.photo.style !== 'none' && effective.effects.photo.intensity! > 0],
       ['Particles', effective.particles.enabled && effective.particles.types.length > 0 && (effective.particles.density ?? 1) > 0],
       ['Fog', !!effective.effects.fog?.enabled],

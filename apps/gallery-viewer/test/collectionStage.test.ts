@@ -1,12 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { applySpatialPreset, createDefaultViewerConfig } from '@vie/gallery-contracts'
+import { normalizeViewerConfig } from '@vie/gallery-contracts'
 import { CollectionStagePlugin } from '../src/plugins/CollectionStagePlugin'
 import type { PhotoMesh } from '../src/core/types'
 import { createViewerContext } from './helpers/viewerContext'
 
-function fixture(width: number, height: number, count: number, reduced = false) {
+function fixture(width: number, height: number, count: number, reduced = false, arrangement = 'fold') {
   const photos = Array.from({ length: count }, (_, index) => {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(80, 60), new THREE.MeshStandardMaterial()) as PhotoMesh
     mesh.userData = { index, url: '', thumbnailUrl: '' }
@@ -17,7 +17,9 @@ function fixture(width: number, height: number, count: number, reduced = false) 
     mesh.add(back)
     return mesh
   })
-  const context = createViewerContext(applySpatialPreset(createDefaultViewerConfig(), 'fold'), photos)
+  const authored = normalizeViewerConfig({ layout: { params: { composition: 'curated', arrangement } }, camera: { autoRotate: true } })
+  assert.deepEqual(authored.issues, [])
+  const context = createViewerContext(authored.config, photos)
   context.scene.add(...photos)
   context.reducedMotion = () => reduced
   context.camera = new THREE.PerspectiveCamera(50, width / height, 1, 6000)
@@ -194,5 +196,55 @@ test('live camera settings reach the collection tour without resetting a manual 
   context.emit('config:update', context.config)
   for (let frame = 0; frame < 30; frame++) stage.update(.05)
   assert.deepEqual(context.camera.position.toArray(), manuallyPaused)
+  stage.uninstall()
+})
+
+for (const arrangement of ['burst', 'domino', 'fans']) {
+  test(`${arrangement} moves photographs in depth while leaving the camera fixed`, () => {
+    const { photos, context, stage } = fixture(390, 844, 12, false, arrangement)
+    const location = context.camera.position.toArray()
+    const orientation = context.camera.quaternion.toArray()
+    const opening = photos.map(photo => photo.position.z)
+    const moved = new Set<number>()
+    for (let i = 0; i < 66; i++) {
+      stage.update(.05)
+      photos.forEach((photo, index) => { if (Math.abs(photo.position.z - opening[index]!) > 25) moved.add(index) })
+    }
+    assert.deepEqual(context.camera.position.toArray(), location)
+    assert.deepEqual(context.camera.quaternion.toArray(), orientation)
+    assert.ok(moved.size >= 3)
+    assert.ok(photos.filter(photo => inFrame(photo, context.camera)).length >= 10)
+    context.emit('stage:autoplay', false)
+    const snapshot = () => photos.map(photo => [photo.position.toArray(), photo.quaternion.toArray()])
+    const paused = snapshot()
+    for (let i = 0; i < 40; i++) stage.update(.05)
+    assert.deepEqual(snapshot(), paused)
+    stage.uninstall()
+  })
+}
+
+test('choreography resumes at the next photo group after requesting another page', () => {
+  const { photos, context, stage } = fixture(1280, 800, 13, false, 'burst')
+  Object.assign(context.renderer.domElement, { dataset: { hasMore: 'true' } })
+  let requested = false
+  context.on('stage:load-more', () => { requested = true })
+  let active = 0
+  context.on('stage:change', ({ index }: { index: number }) => { active = index })
+  assert.equal(photos.filter(photo => photo.visible).length, 12)
+  for (let i = 0; i < 195; i++) stage.update(.05)
+  assert.equal(requested, true)
+  assert.equal(active, 12)
+  assert.ok(photos[12]?.visible)
+  assert.equal(photos[0]?.visible, false)
+  stage.uninstall()
+})
+
+test('reduced motion displays every photograph in a fan group without playing', () => {
+  const { photos, context, stage } = fixture(390, 844, 6, true, 'fans')
+  const layout = photos.map(photo => photo.position.toArray())
+  assert.equal(new Set(layout.map(String)).size, photos.length)
+  assert.ok(photos.every(photo => inFrame(photo, context.camera)))
+  for (let i = 0; i < 100; i++) stage.update(.05)
+  assert.deepEqual(photos.map(photo => photo.position.toArray()), layout)
   stage.uninstall()
 })

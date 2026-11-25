@@ -171,6 +171,24 @@ onMounted(load)
     translateZ(calc(var(--orbit-y) * 27px)) rotateY(calc(var(--orbit-x) * -19deg));
 }
 
+.burst .style-miniature { background: radial-gradient(ellipse at 50% 100%, #b9d0c2, #eaf4ea 86%); }
+.burst .mini-photo {
+  transform: translate(calc(-50% + var(--orbit-x) * var(--orbit-radius) + var(--side) * 11px), calc(-50% + var(--orbit-y) * 32px))
+    translateZ(calc(var(--orbit-y) * 42px)) rotate(calc(var(--orbit-x) * 24deg));
+}
+
+.domino .style-miniature { background: radial-gradient(ellipse at 50% 100%, #586a7c, #2f4053 84%); }
+.domino .mini-photo {
+  transform: translate(calc(-50% + var(--col) * var(--tile-step)), calc(-50% + var(--row) * 39px))
+    translateZ(calc((1.5 - var(--col)) * 18px)) rotateY(calc((var(--col) + var(--row)) * 34deg));
+}
+
+.fans .style-miniature { background: radial-gradient(ellipse at 50% 100%, #dcc5a7, #f6eddf 84%); }
+.fans .mini-photo {
+  transform: translate(calc(-50% + var(--side) * var(--orbit-radius) * .58), -16%)
+    rotate(calc((var(--step) - 1.5) * 23deg)) translateY(-23px) translateZ(calc(var(--step) * 3px));
+}
+
 .style-name {
   display:flex;
   align-items:center;

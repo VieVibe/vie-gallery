@@ -12,21 +12,37 @@ export const CURATED_STYLES = [
 ] as const
 export type CuratedStyle = typeof CURATED_STYLES[number]['id']
 
+const CHOREOGRAPHY_PRESETS = [
+  { id: 'burst', label: '破阵重组', caption: '散开、交错旋转，重新聚成一组', color: '#e1ece5', secondaryColor: '#bacdbf' },
+  { id: 'domino', label: '连锁翻面', caption: '依次翻面，从前后两层换位', color: '#26384b', secondaryColor: '#455469' },
+  { id: 'fans', label: '双扇开合', caption: '由一叠展开为两扇，再摊成双页', color: '#f5eadb', secondaryColor: '#d9c6ad' }
+] as const
+export type PhotoChoreography = typeof CHOREOGRAPHY_PRESETS[number]['id']
+
 export const SPATIAL_PRESETS = [
   { id: 'tide', label: '潮汐', caption: '整面照片随波起伏' },
   { id: 'fold', label: '折廊', caption: '沿廊道穿过两侧作品' },
-  { id: 'space', label: '空间', caption: '多层照片围成开合的光圈' }
+  { id: 'space', label: '空间', caption: '多层照片围成开合的光圈' },
+  ...CHOREOGRAPHY_PRESETS
 ] as const satisfies readonly { id: PhotoArrangement; label: string; caption: string }[]
 export type SpatialPreset = typeof SPATIAL_PRESETS[number]['id']
 
 export const SPATIAL_PALETTE = { mode: 'gradient', color: '#f5f8f1', secondaryColor: '#dcebdd', angle: 135, motion: false } as const
+
+export function isSpatialPreset(id?: string): id is SpatialPreset {
+  return SPATIAL_PRESETS.some(preset => preset.id === id)
+}
+
+export function isPhotoChoreography(id?: string): id is PhotoChoreography {
+  return CHOREOGRAPHY_PRESETS.some(preset => preset.id === id)
+}
 
 export function resolveSpatialPreset(config?: ViewerConfig | null): SpatialPreset | undefined {
   if (config?.layout.params?.composition !== 'curated') return undefined
   return SPATIAL_PRESETS.find(preset => preset.id === config.layout.params?.arrangement)?.id
 }
 
-/** The collection scenes use a shared daylight palette and keep artwork colors neutral. */
+/** Collection scenes keep artwork colors neutral while setting the stage palette. */
 export function applySpatialTheme(config: ViewerConfig): ViewerConfig {
   const next = mergeViewerConfig(config, {
     particles: { enabled: false },
@@ -38,7 +54,10 @@ export function applySpatialTheme(config: ViewerConfig): ViewerConfig {
     lighting: { timeOfDay: 'noon', autoColorAdapt: false },
     interaction: { clickRipple: false, cursorTrail: false }
   })
-  next.background = { ...SPATIAL_PALETTE }
+  const choreography = CHOREOGRAPHY_PRESETS.find(preset => preset.id === config.layout.params?.arrangement)
+  next.background = choreography
+    ? { ...SPATIAL_PALETTE, color: choreography.color, secondaryColor: choreography.secondaryColor, angle: 180 }
+    : { ...SPATIAL_PALETTE }
   return next
 }
 

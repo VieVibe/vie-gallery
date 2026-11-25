@@ -156,10 +156,9 @@ export class PhotoScene {
       mesh.userData.inView = visible
       const nearestSurface = surfaces[0] ?? mesh
       nearestSurface.getWorldPosition(this.position)
-      // Reserve [0, 1) for thumbnails and [1, 2) for full textures. A nearby
-      // upgrade must not occupy the download slots needed by other visible photos.
+      // Load visible thumbnails, then their upgrades, then the next group.
       const distance = this.position.distanceToSquared(camera.position)
-      const priority = !visible ? Infinity : this.flatCards
+      const priority = !visible ? (mesh.userData.prefetchTexture ? 2 : Infinity) : this.flatCards
         ? Math.min(.99, this.position.project(camera).length() / 2)
         : distance / (1 + distance)
       const highOwner = this.highTextureOwners.get(photo)
@@ -167,7 +166,7 @@ export class PhotoScene {
       const needsUpgrade = visible && !highReady && !this.highTextureFailed.has(photo) && mesh.userData.textureState === 'ready'
         && (photo.previewUrl ? this.exceedsPreviewSize(nearestSurface, camera, viewportHeight) : !this.flatCards)
       this.pool.touch(photo, highOwner && highReady ? Infinity : priority)
-      if (highOwner) this.pool.touch(highOwner, highReady || needsUpgrade ? priority + 1 : Infinity)
+      if (highOwner) this.pool.touch(highOwner, highReady || needsUpgrade ? priority + (visible ? 1 : 0) : Infinity)
       else if (needsUpgrade) this.loadHighTexture(photo, mesh, priority)
     }
   }
