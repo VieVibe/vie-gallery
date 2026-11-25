@@ -26,8 +26,12 @@ export interface WorkspaceError {
   status?: number
 }
 
-export interface UploadFileResult {
+export interface UploadEntry {
   file: File
+  idempotencyKey: string
+}
+
+export interface UploadFileResult extends UploadEntry {
   ok: boolean
   photoId?: string
   taskId?: string
@@ -146,46 +150,45 @@ export function useGalleryWorkspace(
   }
 
   async function uploadFiles(
-    files: FileList | File[],
-    options: { onQueued?: () => void | Promise<void>; batchId?: string } = {}
+    entries: UploadEntry[],
+    onQueued: () => Promise<void>
   ): Promise<UploadSummary> {
     const galleryIdValue = id.value
-    if (!galleryIdValue || !files.length) {
+    if (!galleryIdValue || !entries.length) {
       return { succeeded: 0, failed: 0, timedOut: 0, rejected: 0, results: [] }
     }
 
     const version = ++uploadVersion
-    const list = Array.from(files)
-    const batchId = options.batchId ?? crypto.randomUUID()
-    const totalBytes = list.reduce((sum, file) => sum + file.size, 0) || 1
-    const uploadedBytes = new Array<number>(list.length).fill(0)
+    const batchId = crypto.randomUUID()
+    const totalBytes = entries.reduce((sum, entry) => sum + entry.file.size, 0) || 1
+    const uploadedBytes = new Array<number>(entries.length).fill(0)
     const results: UploadFileResult[] = []
 
     uploading.value = true
     uploadProgress.value = 0
-    uploadStatusText.value = `正在上传 0/${list.length} 张…`
+    uploadStatusText.value = `正在上传 0/${entries.length} 张…`
 
     const reportProgress = () => {
       if (version !== uploadVersion) return
       const done = uploadedBytes.reduce((sum, value) => sum + value, 0)
       uploadProgress.value = Math.min(99, Math.round((done / totalBytes) * 100))
-      uploadStatusText.value = `正在上传 ${results.length}/${list.length} 张…`
+      uploadStatusText.value = `正在上传 ${results.length}/${entries.length} 张…`
     }
 
     // 逐文件上传：单个请求只带一张图，避免大批量塞进一个请求触发超时，
     // 也让进度条反映真实字节数、单张失败不影响其余文件。
     let cursor = 0
     async function worker() {
-      while (cursor < list.length && version === uploadVersion) {
+      while (cursor < entries.length && version === uploadVersion) {
         const index = cursor++
-        const file = list[index]
+        const { file, idempotencyKey } = entries[index]
         const form = new FormData()
         form.append('files', file)
         try {
           const response = await uploadFileWithProgress(`/api/galleries/${galleryIdValue}/photos`, form, {
             headers: {
               'X-Client-Batch-Id': batchId,
-              'Idempotency-Key': crypto.randomUUID()
+              'Idempotency-Key': idempotencyKey
             },
             onProgress: loaded => {
               uploadedBytes[index] = loaded
@@ -193,29 +196,32 @@ export function useGalleryWorkspace(
             }
           })
           if (!response.ok) throw await responseError(response, '照片上传失败，请重试。')
-          const payload = await response.json() as { items?: UploadItem[] }
-          const item = (payload.items ?? [])[0]
+          const payload = await response.json().catch(() => null) as { items?: UploadItem[] } | null
+          const item = payload?.items?.[0]
           if (item && item.accepted === false) {
             results.push({
               file,
+              idempotencyKey,
               ok: false,
               errorCode: item.error?.code || 'REJECTED',
               message: item.error?.message || '文件未被接受'
             })
+          } else if (item?.accepted === true && item.photoId && item.taskId) {
+            results.push({ file, idempotencyKey, ok: true, photoId: item.photoId, taskId: item.taskId })
           } else {
-            results.push({ file, ok: true, photoId: item?.photoId ?? undefined, taskId: item?.taskId ?? undefined })
-            uploadedBytes[index] = file.size
+            throw new Error('未收到完整的上传回执，请重试。')
           }
         } catch (cause) {
-          const message = cause instanceof Error ? cause.message : '照片上传失败，请重试。'
-          results.push({ file, ok: false, errorCode: message.includes('超时') ? 'TIMEOUT' : 'NETWORK', message })
+          const message = cause instanceof TypeError ? '网络连接异常，请重试。'
+            : cause instanceof Error ? cause.message : '照片上传失败，请重试。'
+          results.push({ file, idempotencyKey, ok: false, errorCode: message.includes('超时') ? 'TIMEOUT' : 'NETWORK', message })
         }
         uploadedBytes[index] = Math.max(uploadedBytes[index], file.size)
         reportProgress()
       }
     }
 
-    const workerCount = Math.min(UPLOAD_CONCURRENCY, list.length)
+    const workerCount = Math.min(UPLOAD_CONCURRENCY, entries.length)
     await Promise.all(Array.from({ length: workerCount }, () => worker()))
 
     const succeededResults = results.filter(result => result.ok)
@@ -226,7 +232,7 @@ export function useGalleryWorkspace(
     }
 
     try {
-      await options.onQueued?.()
+      await onQueued()
     } finally {
       if (version === uploadVersion) {
         await new Promise(resolve => setTimeout(resolve, 300))

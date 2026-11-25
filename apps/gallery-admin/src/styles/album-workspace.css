@@ -143,6 +143,8 @@
 .workspace-notice.is-error { border-color: #e5d2c6; background: #f7ede4; color: #81432e; }
 .workspace-notice > p, .workspace-notice ul { margin: 0; padding: 6px 0; }
 .workspace-notice ul { list-style: none; }
+.upload-failures { min-width: 0; overflow-wrap: anywhere; }
+.upload-failures summary { padding-block: 8px; cursor: pointer; }
 .notice-action { min-height: 44px; padding: 4px 0; color: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: .18em; }
 .notice-action:disabled { opacity: .52; }
 

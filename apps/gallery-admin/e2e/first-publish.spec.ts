@@ -158,6 +158,76 @@ test('first upload enables publishing without a page reload', async ({ page }) =
   await expect(page.getByRole('button', { name: '分享', exact: true })).toBeVisible()
 })
 
+test('retrying a lost upload receipt reuses its key and only resends the unconfirmed photo', async ({ page }) => {
+  await mockWorkspace(page, { hasConfigDraft: true })
+  const attempts = { first: [] as string[], second: [] as string[] }
+  await page.route(new RegExp(`/api/galleries/${GALLERY_ID}/photos$`), async route => {
+    const request = route.request()
+    if (request.method() !== 'POST') return route.fallback()
+    const file = request.postDataBuffer()!.includes('first-image') ? 'first' : 'second'
+    attempts[file].push(request.headers()['idempotency-key'])
+    if (file === 'first' && attempts.first.length === 1) return route.abort('connectionreset')
+    return route.fallback()
+  })
+  await page.goto(`/app/galleries/${GALLERY_ID}`)
+  const files = ['first-image', 'second-image'].map(content => ({
+    name: 'camera.png', mimeType: 'image/png', buffer: Buffer.from(content)
+  }))
+  await page.locator('input[type="file"]').setInputFiles(files)
+  const retry = page.getByRole('button', { name: '重试上传' })
+  await retry.click()
+  await expect(page.getByText('已加入队列 1 张照片，正在后台处理。')).toBeVisible()
+  expect(attempts.first).toHaveLength(2)
+  expect(attempts.second).toHaveLength(1)
+  expect(attempts.first[0]).toBeTruthy()
+  expect(attempts.first[1]).toBe(attempts.first[0])
+  expect(attempts.second[0]).not.toBe(attempts.first[0])
+  await page.locator('input[type="file"]').setInputFiles(files[0])
+  await expect.poll(() => attempts.first.length).toBe(3)
+  expect(attempts.first[2]).not.toBe(attempts.first[0])
+})
+
+test('an incomplete upload receipt offers retry without leaving a queued task', async ({ page }) => {
+  await mockWorkspace(page, { hasConfigDraft: true })
+  await page.route(new RegExp(`/api/galleries/${GALLERY_ID}/photos$`), route =>
+    route.request().method() === 'POST' ? route.fulfill({ status: 202, json: { items: [] } }) : route.fallback())
+  await page.goto(`/app/galleries/${GALLERY_ID}`)
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'shore.png', mimeType: 'image/png', buffer: Buffer.from('image')
+  })
+  await expect(page.getByRole('button', { name: '重试上传' })).toBeEnabled()
+  await page.getByText('1 张照片未确认上传', { exact: true }).click()
+  await expect(page.getByText('shore.png · 未收到完整的上传回执，请重试。')).toBeVisible()
+  await page.getByText('上传进度与记录', { exact: true }).click()
+  await expect(page.locator('.task-panel .summary-chip.queued strong')).toHaveText('0')
+  await expect(page.locator('.task-panel .task-item')).toHaveCount(0)
+})
+
+test('the task list recovers when the first refresh after uploading fails', async ({ page }) => {
+  await mockWorkspace(page, { hasConfigDraft: true, gallery: { ...draftGallery, photoCount: 0 } })
+  let uploaded = false
+  let failedRead = false
+  await page.route(new RegExp(`/api/galleries/${GALLERY_ID}/photos$`), route => {
+    if (route.request().method() === 'POST') uploaded = true
+    return route.fallback()
+  })
+  await page.route('**/api/galleries/*/photo-tasks**', route => {
+    if (!uploaded) return route.fallback()
+    if (!failedRead) {
+      failedRead = true
+      return route.fulfill({ status: 503, json: { message: '暂时无法读取队列' } })
+    }
+    return route.fulfill({ json: { items: [{ id: 'task-1', filename: 'shore.png', status: 'SUCCEEDED' }] } })
+  })
+  await page.goto(`/app/galleries/${GALLERY_ID}`)
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'shore.png', mimeType: 'image/png', buffer: Buffer.from('image')
+  })
+  await expect(page.getByText('已加入队列 1 张照片，正在后台处理。')).toBeVisible()
+  await page.getByText('上传进度与记录', { exact: true }).click()
+  await expect(page.locator('.task-panel .task-item')).toContainText('shore.png', { timeout: 8000 })
+})
+
 test('publishing becomes available when the first photo finishes while another is still processing', async ({ page }) => {
   await mockWorkspace(page, { hasConfigDraft: true, gallery: { ...draftGallery, photoCount: 0 } })
   let taskReads = 0

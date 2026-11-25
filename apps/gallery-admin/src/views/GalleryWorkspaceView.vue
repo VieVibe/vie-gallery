@@ -4,7 +4,7 @@ import type { ViewerConfigVersion } from '@vie/gallery-contracts'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useToast } from '../composables/useToast'
 import { useAuth } from '../composables/useAuth'
-import { useGalleryWorkspace, type WorkspacePhoto } from '../composables/useGalleryWorkspace'
+import { useGalleryWorkspace, type UploadEntry, type UploadFileResult, type WorkspacePhoto } from '../composables/useGalleryWorkspace'
 import { useUploadTasks, type UploadTask } from '../composables/useUploadTasks'
 import { usePublishCenter } from '../composables/usePublishCenter'
 import { useConfigVersionMetadata } from '../composables/useConfigVersionMetadata'
@@ -54,7 +54,7 @@ const photoViewMode = ref<'grid' | 'list'>('grid')
 const photoGridRef = ref<{ clearSelection: () => void } | null>(null)
 const photoListRef = ref<{ clearSelection: () => void } | null>(null)
 const dropzoneRef = ref<{ chooseFiles: () => void } | null>(null)
-const failedUploadFiles = ref<File[]>([])
+const failedUploadFiles = ref<UploadFileResult[]>([])
 const userMenuOpen = ref(false)
 const showLightbox = ref(false)
 const lightboxPhotoId = ref<string | null>(null)
@@ -265,34 +265,33 @@ async function confirmUnpublish() {
   }
 }
 
-async function handleUpload(files: FileList | File[]) {
+function handleUpload(files: FileList | File[]) {
+  return submitUploads(Array.from(files, file => ({ file, idempotencyKey: crypto.randomUUID() })))
+}
+
+async function submitUploads(entries: UploadEntry[]) {
   if (!canPhotoWrite.value || workspace.uploading.value) return
   const uploadingGallery = galleryId.value
   const isSameAlbum = () => mounted && galleryId.value === uploadingGallery
-  const selected = Array.from(files)
-  const batchId = taskCenter.rememberLocal(selected)
   try {
-    const summary = await workspace.uploadFiles(files, {
-      batchId,
-      onQueued: async () => {
-        if (!isSameAlbum()) return
-        await taskCenter.load(true, true)
-        if (isSameAlbum()) await reloadGalleryAccess()
-      }
+    const summary = await workspace.uploadFiles(entries, async () => {
+      if (!isSameAlbum()) return
+      await taskCenter.load(true, true)
+      if (isSameAlbum()) await reloadGalleryAccess()
     })
     if (!isSameAlbum()) return
     const failedFiles = summary.results.filter(result => !result.ok)
     if (failedFiles.length) {
-      failedUploadFiles.value = [...failedUploadFiles.value, ...failedFiles.map(result => result.file)]
+      failedUploadFiles.value.push(...failedFiles)
       toast.warning(`已加入队列 ${summary.succeeded} 张，${failedFiles.length} 张上传失败（${failedFiles[0]?.message || '网络异常'}）。`)
     } else if (summary.succeeded > 0) {
       toast.success(`已加入队列 ${summary.succeeded} 张照片，正在后台处理。`)
     }
   } catch (error) {
     if (!isSameAlbum()) return
-    taskCenter.forgetLocalBatch(batchId)
-    await taskCenter.load(true)
-    toast.error(error instanceof Error ? error.message : '照片上传失败，请重试。')
+    const message = error instanceof Error ? error.message : '照片上传失败，请重试。'
+    failedUploadFiles.value.push(...entries.map(entry => ({ ...entry, ok: false, message })))
+    toast.error(message)
   }
 }
 
@@ -300,7 +299,7 @@ async function handleRetryFailedUploads() {
   if (!canPhotoWrite.value || !failedUploadFiles.value.length || workspace.uploading.value) return
   const retrying = failedUploadFiles.value
   failedUploadFiles.value = []
-  await handleUpload(retrying)
+  await submitUploads(retrying)
 }
 
 function handleInvalidSelection(detail: { message: string; count: number }) {
@@ -662,7 +661,12 @@ async function reloadGalleryAccess() {
         </div>
 
         <div v-if="failedUploadFiles.length" class="workspace-notice is-error">
-          <p role="status">{{ failedUploadFiles.length }} 张照片未上传成功</p>
+          <details class="upload-failures">
+            <summary>{{ failedUploadFiles.length }} 张照片未确认上传</summary>
+            <ul>
+              <li v-for="entry in failedUploadFiles" :key="entry.idempotencyKey">{{ entry.file.name }} · {{ entry.message }}</li>
+            </ul>
+          </details>
           <button class="notice-action" type="button" :disabled="workspace.uploading.value" @click="handleRetryFailedUploads">重试上传</button>
         </div>
         <div v-if="photoViewMode === 'grid'" class="photo-grid-wrapper">

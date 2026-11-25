@@ -7,7 +7,7 @@ import type {
   UploadTaskSummary
 } from '@vie/gallery-contracts'
 import { apiFetch } from '../api'
-import { responseError } from '../lib/apiError'
+import { responseError, StatusError } from '../lib/apiError'
 
 export type { UploadTask, UploadTaskError, UploadTaskPage, UploadTaskStatus, UploadTaskSummary }
 
@@ -74,7 +74,6 @@ export function useUploadTasks(
   const id = computed(() => toValue(galleryId))
   const isEnabled = computed(() => toValue(enabled))
   const tasks = ref<UploadTask[]>([])
-  const localPlaceholders = ref<UploadTask[]>([])
   const summary = ref<UploadTaskSummary>(emptySummary())
   const filter = ref<TaskFilter>('ALL')
   const loading = ref(true)
@@ -85,7 +84,6 @@ export function useUploadTasks(
   let requestVersion = 0
   let pollTimer: number | undefined
   let pendingLoad: { galleryId: string; promise: Promise<void> } | undefined
-  let hadActiveTasks = false
 
   const activeTasks = computed(() => tasks.value.filter(task => ACTIVE_STATUSES.includes(task.status)))
   const activeCount = computed(() => summary.value.queued + summary.value.processing + summary.value.cancelRequested)
@@ -102,9 +100,12 @@ export function useUploadTasks(
     isPolling.value = false
   }
 
-  function schedulePoll(delay = document.hidden ? 8000 : 2500) {
+  function schedulePoll() {
     clearPoll()
-    if (!isEnabled.value || !activeCount.value) return
+    const cause = error.value
+    const transient = cause instanceof TypeError || (cause instanceof StatusError && (cause.status ?? 0) >= 500)
+    if (!isEnabled.value || (cause ? !transient : !activeCount.value)) return
+    const delay = document.hidden ? 8000 : transient ? 5000 : 2500
     isPolling.value = true
     pollTimer = window.setTimeout(() => {
       pollTimer = undefined
@@ -119,12 +120,10 @@ export function useUploadTasks(
       pendingLoad = undefined
       clearPoll()
       tasks.value = []
-      localPlaceholders.value = []
       summary.value = emptySummary()
       loading.value = false
       refreshing.value = false
       error.value = null
-      hadActiveTasks = false
       return
     }
     if (pendingLoad?.galleryId === galleryIdValue) {
@@ -141,7 +140,6 @@ export function useUploadTasks(
   async function loadTasks(galleryIdValue: string, version: number, silent: boolean) {
     if (silent) refreshing.value = true
     else loading.value = true
-    error.value = null
     try {
       const query = new URLSearchParams({
         status: 'QUEUED,PROCESSING,CANCEL_REQUESTED,FAILED,SUCCEEDED,CANCELLED',
@@ -155,21 +153,14 @@ export function useUploadTasks(
       const items = Array.isArray(data) ? data : data.items || []
       const remoteTasks = items.map(normalizeTask).filter(task => task.id)
 
-      // Prune local placeholders that match remote tasks by filename or are older than 60s
-      const now = Date.now()
-      localPlaceholders.value = localPlaceholders.value.filter(local => {
-        const matchingRemote = remoteTasks.some(remote => remote.filename === local.filename)
-        const ageMs = local.createdAt ? now - new Date(local.createdAt).getTime() : 0
-        return !matchingRemote && ageMs < 60000
-      })
-
-      tasks.value = [...localPlaceholders.value, ...remoteTasks]
+      tasks.value = remoteTasks
 
       const remoteSummary = Array.isArray(data) ? undefined : data.summary
-      const pendingLocalsCount = localPlaceholders.value.length
       const previousSummary = summary.value
+      const refreshPhotos = activeCount.value > 0 || !!error.value
+      error.value = null
       summary.value = {
-        queued: Number(remoteSummary?.queued ?? remoteTasks.filter(task => task.status === 'QUEUED').length) + pendingLocalsCount,
+        queued: Number(remoteSummary?.queued ?? remoteTasks.filter(task => task.status === 'QUEUED').length),
         processing: Number(remoteSummary?.processing ?? remoteTasks.filter(task => task.status === 'PROCESSING').length),
         succeeded: Number(remoteSummary?.succeeded ?? remoteTasks.filter(task => task.status === 'SUCCEEDED').length),
         failed: Number(remoteSummary?.failed ?? remoteTasks.filter(task => task.status === 'FAILED').length),
@@ -178,13 +169,12 @@ export function useUploadTasks(
       }
 
       const currentActiveCount = activeCount.value
-      const photosChanged = hadActiveTasks && (
+      const photosChanged = refreshPhotos && (
         currentActiveCount === 0 ||
         summary.value.succeeded !== previousSummary.succeeded ||
         summary.value.failed !== previousSummary.failed ||
         summary.value.cancelled !== previousSummary.cancelled
       )
-      hadActiveTasks = currentActiveCount > 0
       if (photosChanged) {
         try {
           await options.onPhotoStatusChange?.()
@@ -231,45 +221,6 @@ export function useUploadTasks(
     document.removeEventListener('visibilitychange', handleVisibilityChange)
   })
 
-  function rememberLocal(files: File[], batchId = crypto.randomUUID()) {
-    const locals: UploadTask[] = files.map((file, index) => ({
-      id: `local:${batchId}:${index}`,
-      filename: file.name,
-      status: 'QUEUED' as UploadTaskStatus,
-      progress: 5,
-      attempts: 0,
-      maxAttempts: 3,
-      retryable: false,
-      createdAt: new Date().toISOString()
-    }))
-    localPlaceholders.value = [...localPlaceholders.value, ...locals]
-    tasks.value = [...localPlaceholders.value, ...tasks.value.filter(task => !String(task.id).startsWith('local:'))]
-    summary.value = {
-      ...summary.value,
-      queued: summary.value.queued + locals.length
-    }
-    loading.value = false
-    error.value = null
-    hadActiveTasks = true
-    return batchId
-  }
-
-  function forgetLocalBatch(batchId: string) {
-    const prefix = `local:${batchId}:`
-    const removed = localPlaceholders.value.filter(task => String(task.id).startsWith(prefix)).length
-    localPlaceholders.value = localPlaceholders.value.filter(task => !String(task.id).startsWith(prefix))
-    tasks.value = tasks.value.filter(task => !String(task.id).startsWith(prefix))
-    if (removed > 0) {
-      summary.value = {
-        ...summary.value,
-        queued: Math.max(0, summary.value.queued - removed)
-      }
-    }
-    if (!activeCount.value) {
-      hadActiveTasks = false
-    }
-  }
-
   return {
     tasks,
     filteredTasks,
@@ -282,9 +233,7 @@ export function useUploadTasks(
     isPolling,
     load,
     retry,
-    cancel,
-    rememberLocal,
-    forgetLocalBatch
+    cancel
   }
 }
 
