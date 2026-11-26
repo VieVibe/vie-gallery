@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, RouterLink, useRouter } from 'vue-router'
 import { galleryMediaUrl } from '@vie/gallery-contracts'
 import type { Gallery } from '@vie/gallery-contracts'
 import { apiFetch } from '../api'
@@ -20,6 +20,7 @@ const router = useRouter()
 const toast = useToast()
 const { currentUser, setUser, logout, can, userDisplayName, userInitial, isOwner } = useAuth()
 const canCreateGallery = can('GALLERY_CREATE')
+const canReadConfig = can('CONFIG_READ')
 
 const authMode = ref<'login' | 'register'>('login')
 const authForm = ref({
@@ -55,12 +56,31 @@ const loading = ref(false)
 const loadError = ref('')
 
 const searchQuery = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
 const statusFilter = ref<StatusFilter>('ALL')
 const sortBy = ref<SortOption>('updated')
 const viewMode = ref<'grid' | 'list'>('grid')
 const menuId = ref<string | null>(null)
 const userMenuOpen = ref(false)
 const failedCoverUrls = ref(new Set<string>())
+
+// Keep the library's controls with this browser history entry when an album is opened.
+onBeforeRouteLeave(() => {
+  if (history.state?.current !== router.currentRoute.value.fullPath || !currentUser.value?.user?.id) return
+  history.replaceState({
+    ...history.state,
+    albumLibrary: {
+      user: currentUser.value.user.id, tenant: currentUser.value.tenant?.id,
+      search: searchQuery.value, status: statusFilter.value, sort: sortBy.value, view: viewMode.value
+    }
+  }, '')
+})
+
+function resetFilters() {
+  searchQuery.value = ''
+  statusFilter.value = 'ALL'
+  searchInput.value?.focus()
+}
 
 const showCreateModal = ref(false)
 const createForm = ref(newAlbum())
@@ -88,23 +108,23 @@ function openCreateModal() {
   showCreateModal.value = true
 }
 
-const statusCounts = computed(() => {
-  const all = galleries.value.length
-  const draft = galleries.value.filter(g => g.status === 'DRAFT').length
-  const published = galleries.value.filter(g => g.status === 'PUBLISHED').length
-  const archived = galleries.value.filter(g => g.status === 'ARCHIVED').length
-  return { all, draft, published, archived }
+const statusOptions = computed(() => {
+  const counts = { ALL: galleries.value.length, DRAFT: 0, PUBLISHED: 0, ARCHIVED: 0 }
+  for (const gallery of galleries.value) counts[gallery.status]++
+  return (Object.keys(counts) as StatusFilter[])
+    .filter(value => value !== 'ARCHIVED' || counts.ARCHIVED || statusFilter.value === value)
+    .map(value => ({ value, label: { ALL: '全部', DRAFT: '草稿', PUBLISHED: '已发布', ARCHIVED: '已归档' }[value], count: counts[value] }))
 })
 
 const filteredGalleries = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase()
   const list = galleries.value.filter(g => {
     if (statusFilter.value !== 'ALL' && g.status !== statusFilter.value) return false
-    if (!searchQuery.value.trim()) return true
-    const query = searchQuery.value.trim().toLowerCase()
+    if (!query) return true
     return g.name.toLowerCase().includes(query) || g.slug.toLowerCase().includes(query)
   })
 
-  return list.slice().sort((a, b) => {
+  return list.sort((a, b) => {
     if (sortBy.value === 'name') {
       return a.name.localeCompare(b.name, 'zh-CN')
     }
@@ -139,7 +159,7 @@ function formatTime(value?: string | null) {
 function visibilityLabel(gallery: Gallery) {
   if (gallery.visibility === 'PUBLIC') return '公开'
   if (gallery.visibility === 'PASSWORD') return '密码保护'
-  return '私密'
+  return '专属链接'
 }
 
 function statusLabel(gallery: Gallery) {
@@ -236,11 +256,21 @@ async function loadGalleries() {
 }
 
 watch(currentUser, async (user, previous) => {
+  galleryRequestVersion++
   galleries.value = []
-  if (user?.tenant?.id !== previous?.tenant?.id) {
+  loadError.value = ''
+  loading.value = !!user
+  if (user?.tenant?.id !== previous?.tenant?.id || user?.user?.id !== previous?.user?.id) {
     searchQuery.value = ''
     statusFilter.value = 'ALL'
     closeMenus()
+  }
+  const saved = history.state?.albumLibrary
+  if (!previous && user?.user?.id && saved?.user === user.user.id && saved.tenant === user.tenant?.id) {
+    searchQuery.value = saved.search
+    statusFilter.value = saved.status
+    sortBy.value = saved.sort
+    viewMode.value = saved.view
   }
   if (user) {
     try {
@@ -248,9 +278,8 @@ watch(currentUser, async (user, previous) => {
       if (currentUser.value !== user) return
       if (access.allowed) { await router.replace({ name: 'private-space' }); return }
     } catch { /* The optional private space must not block the existing gallery. */ }
-    loadGalleries()
+    if (currentUser.value === user) loadGalleries()
   } else {
-    galleryRequestVersion++
     loading.value = false
     galleries.value = []
     loadError.value = ''
@@ -553,112 +582,48 @@ async function handleDeleteGallery() {
       </div>
     </header>
 
-    <div class="space-body">
+    <section class="space-body" aria-labelledby="album-library-title">
       <div class="space-heading">
-        <h1>我的相册</h1>
-        <button
-          v-if="canCreateGallery"
-          id="btn-open-create-modal"
-          class="space-create-btn"
-          type="button"
-          @click="openCreateModal"
-        >
-          <Icon name="plus" :size="16" />
-          <span>新建相册</span>
+        <div class="library-title">
+          <h1 id="album-library-title">我的相册</h1>
+          <WorkspaceSwitcher />
+        </div>
+        <button v-if="canCreateGallery" id="btn-open-create-modal" class="space-create-btn" type="button" @click="openCreateModal">
+          <Icon name="plus" :size="17" /> 新建相册
         </button>
       </div>
 
-      <WorkspaceSwitcher />
-
       <div v-if="galleries.length" class="space-toolbar">
-        <div class="search-box">
-          <Icon name="search" :size="16" class="search-icon" />
-          <input v-model="searchQuery" type="search" class="search-input" placeholder="搜索相册"
-            aria-label="搜索相册名称或地址" @keydown.esc="searchQuery = ''" />
+        <div class="status-filter-group" role="group" aria-label="相册状态">
+          <button v-for="option in statusOptions" :key="option.value" class="status-tab-btn" type="button"
+            :aria-pressed="statusFilter === option.value" @click="statusFilter = option.value">
+            {{ option.label }} <span>{{ option.count }}</span>
+          </button>
         </div>
-        <details class="collection-options">
-          <summary>筛选与排序 <Icon name="chevron-down" :size="14" /></summary>
-          <div class="collection-options-body">
-            <!-- 状态筛选 Chips -->
-            <div class="status-filter-group">
-              <button
-                class="status-tab-btn"
-                :class="{ active: statusFilter === 'ALL' }"
-                :aria-pressed="statusFilter === 'ALL'"
-                type="button"
-                @click="statusFilter = 'ALL'"
-              >
-                全部 ({{ statusCounts.all }})
-              </button>
-              <button
-                class="status-tab-btn"
-                :class="{ active: statusFilter === 'DRAFT' }"
-                :aria-pressed="statusFilter === 'DRAFT'"
-                type="button"
-                @click="statusFilter = 'DRAFT'"
-              >
-                草稿 ({{ statusCounts.draft }})
-              </button>
-              <button
-                class="status-tab-btn"
-                :class="{ active: statusFilter === 'PUBLISHED' }"
-                :aria-pressed="statusFilter === 'PUBLISHED'"
-                type="button"
-                @click="statusFilter = 'PUBLISHED'"
-              >
-                已发布 ({{ statusCounts.published }})
-              </button>
-              <button
-                v-if="statusCounts.archived > 0"
-                class="status-tab-btn"
-                :class="{ active: statusFilter === 'ARCHIVED' }"
-                :aria-pressed="statusFilter === 'ARCHIVED'"
-                type="button"
-                @click="statusFilter = 'ARCHIVED'"
-              >
-                已归档 ({{ statusCounts.archived }})
-              </button>
-            </div>
-
-            <div class="space-toolbar-right">
-              <!-- 排序方式 -->
-              <div class="sort-selector">
-                <select v-model="sortBy" class="sort-select" aria-label="排序方式">
-                  <option value="updated">最近更新</option>
-                  <option value="created">最近创建</option>
-                  <option value="name">名称排序</option>
-                </select>
-              </div>
-
-              <div class="view-toggle" role="group" aria-label="展示方式">
-                <button
-                  class="view-btn"
-                  :class="{ active: viewMode === 'grid' }"
-                  type="button"
-                  title="网格视图"
-                  aria-label="网格视图"
-                  :aria-pressed="viewMode === 'grid'"
-                  @click="viewMode = 'grid'"
-                >
-                  <Icon name="grid" :size="15" />
-                </button>
-                <button
-                  class="view-btn"
-                  :class="{ active: viewMode === 'list' }"
-                  type="button"
-                  title="列表视图"
-                  aria-label="列表视图"
-                  :aria-pressed="viewMode === 'list'"
-                  @click="viewMode = 'list'"
-                >
-                  <Icon name="list" :size="15" />
-                </button>
-              </div>
-
-            </div>
+        <div class="space-toolbar-right">
+          <div class="search-box">
+            <Icon name="search" :size="16" class="search-icon" />
+            <input ref="searchInput" v-model="searchQuery" type="search" class="search-input" placeholder="搜索相册"
+              aria-label="搜索相册名称或地址" @keydown.esc="searchQuery = ''" />
           </div>
-        </details>
+          <select v-model="sortBy" class="sort-select" aria-label="排序方式">
+            <option value="updated">最近更新</option>
+            <option value="created">最近创建</option>
+            <option value="name">名称排序</option>
+          </select>
+          <div class="view-toggle" role="group" aria-label="展示方式">
+            <button class="view-btn" type="button" title="网格视图" aria-label="网格视图" :aria-pressed="viewMode === 'grid'" @click="viewMode = 'grid'">
+              <Icon name="grid" :size="16" />
+            </button>
+            <button class="view-btn" type="button" title="列表视图" aria-label="列表视图" :aria-pressed="viewMode === 'list'" @click="viewMode = 'list'">
+              <Icon name="list" :size="16" />
+            </button>
+          </div>
+        </div>
       </div>
+      <p v-if="galleries.length" role="status" class="library-result" :class="{ 'visually-hidden': !searchQuery.trim() }">
+        共 {{ filteredGalleries.length }} 本相册
+      </p>
 
       <div v-if="loadError" class="space-error" role="alert">
         <Icon name="alert-circle" :size="16" />
@@ -666,111 +631,55 @@ async function handleDeleteGallery() {
         <button class="btn btn-secondary btn-sm" type="button" @click="loadGalleries">重试</button>
       </div>
 
-      <div v-if="!loading && !loadError && viewMode === 'grid' && filteredGalleries.length" class="space-grid" :class="{ 'has-one': filteredGalleries.length === 1, 'has-two': filteredGalleries.length === 2 }">
-        <article
-          v-for="gallery in filteredGalleries"
-          :key="gallery.id"
-          class="space-card"
-        >
+      <div v-if="!loading && !loadError && filteredGalleries.length" :class="viewMode === 'grid' ? 'space-grid' : 'space-list'"
+        :data-single="galleries.length === 1">
+        <article v-for="(gallery, index) in filteredGalleries" :key="gallery.id" class="space-card" :data-access="gallery.visibility">
           <div class="card-cover">
-            <Icon name="photo" :size="36" class="cover-placeholder" aria-hidden="true" />
             <img v-if="gallery.coverThumbnailUrl && !failedCoverUrls.has(gallery.coverThumbnailUrl)"
-              :key="gallery.coverThumbnailUrl" :src="galleryMediaUrl(gallery.coverThumbnailUrl)" class="cover-image" alt="" loading="lazy"
-              @error="failedCoverUrls.add(gallery.coverThumbnailUrl!)" />
-            <span class="vis-tag" :class="gallery.visibility === 'PUBLIC' ? 'is-public' : gallery.visibility === 'PASSWORD' ? 'is-password' : 'is-private'">
-              {{ visibilityLabel(gallery) }}
-            </span>
-            <span v-if="gallery.hasUnpublishedConfig" class="badge-draft-config">
-              待发布配置
-            </span>
+              :key="gallery.coverThumbnailUrl" :src="galleryMediaUrl(gallery.coverThumbnailUrl)" class="cover-image" alt=""
+              :loading="index === 0 ? 'eager' : 'lazy'" @error="failedCoverUrls.add(gallery.coverThumbnailUrl!)" />
+            <div v-else class="cover-imprint" aria-hidden="true">
+              <span>{{ Array.from(gallery.name.trim())[0] }}</span>
+            </div>
           </div>
-          <div class="card-body">
-            <div class="card-title-row">
-              <h2><RouterLink class="album-card-link" :to="{ name: 'gallery-workspace', params: { id: gallery.id } }">{{ gallery.name }}</RouterLink></h2>
+          <div class="card-copy">
+            <div class="card-states">
+              <span class="status-meta" :data-status="gallery.status"><i aria-hidden="true"></i>{{ statusLabel(gallery) }}</span>
+              <span class="card-access"><Icon :name="gallery.visibility === 'PUBLIC' ? 'globe' : gallery.visibility === 'PASSWORD' ? 'lock' : 'link'" :size="13" />{{ visibilityLabel(gallery) }}</span>
             </div>
-
-            <!-- 卡片 Meta 数据摘要 -->
-            <div class="card-metrics-row">
-              <span class="metric-item">{{ gallery.photoCount ?? 0 }} 张照片</span>
-              <span v-if="gallery.processingCount && gallery.processingCount > 0" class="metric-badge processing">
-                {{ gallery.processingCount }} 处理中
-              </span>
-              <span v-if="gallery.failedPhotoCount && gallery.failedPhotoCount > 0" class="metric-badge failed">
-                {{ gallery.failedPhotoCount }} 失败
-              </span>
+            <h2><RouterLink class="album-card-link" :to="{ name: 'gallery-workspace', params: { id: gallery.id } }">{{ gallery.name }}</RouterLink></h2>
+            <div class="card-metadata">
+              <span>{{ gallery.photoCount ?? 0 }} 张照片</span>
+              <span v-if="gallery.updatedAt || gallery.createdAt">更新于 {{ formatTime(gallery.updatedAt || gallery.createdAt) }}</span>
             </div>
-
-            <p class="card-date">更新于 {{ formatTime(gallery.updatedAt || gallery.createdAt) }}</p>
-
-            <div class="card-foot">
-              <span class="status-meta">
-                <span class="status-dot" :class="gallery.status === 'PUBLISHED' ? 'is-live' : 'is-draft'"></span>
-                <span>{{ statusLabel(gallery) }}</span>
-              </span>
-              <div class="more-wrap" @keydown.esc.stop="closeMenuFromKeyboard" @keydown="navigateMenu" @focusout="closeMenuOnBlur">
-                <button
-                  class="more-btn"
-                  type="button"
-                  aria-label="更多操作"
-                  :aria-expanded="menuId === gallery.id"
-                  @keydown.esc="menuId = null"
-                  @click="toggleCardMenu(gallery.id, $event)"
-                >
-                  <Icon name="more" :size="16" />
-                </button>
-                <div v-if="menuId === gallery.id" class="card-menu" @click.stop>
-                  <button type="button" @click="navigateToWorkspace(gallery.id)">进入工作区</button>
-                  <button type="button" @click="navigateToConfig(gallery.id)">展厅配置</button>
-                  <button type="button" @click="openViewer(gallery)">预览展厅</button>
-                  <template v-if="isOwner">
-                    <button type="button" @click="openRenameModal(gallery)">重命名</button>
-                    <button type="button" class="card-menu-danger" @click="openDeleteModal(gallery)">删除空间…</button>
-                  </template>
-                </div>
-              </div>
+            <div v-if="gallery.hasUnpublishedConfig || gallery.processingCount || gallery.failedPhotoCount" class="card-signals">
+              <span v-if="gallery.hasUnpublishedConfig">待发布配置</span>
+              <span v-if="gallery.processingCount">{{ gallery.processingCount }} 处理中</span>
+              <span v-if="gallery.failedPhotoCount" class="failed">{{ gallery.failedPhotoCount }} 失败</span>
+            </div>
+          </div>
+          <div class="more-wrap" @keydown.esc.stop="closeMenuFromKeyboard" @keydown="navigateMenu" @focusout="closeMenuOnBlur">
+            <button class="more-btn" type="button" aria-label="更多操作" :title="gallery.name + '的更多操作'"
+              :aria-expanded="menuId === gallery.id" @click="toggleCardMenu(gallery.id, $event)">
+              <Icon name="more" :size="18" />
+            </button>
+            <div v-if="menuId === gallery.id" class="card-menu" @click.stop>
+              <button type="button" @click="navigateToWorkspace(gallery.id)">进入工作区</button>
+              <button v-if="canReadConfig" type="button" @click="navigateToConfig(gallery.id)">展厅配置</button>
+              <button type="button" @click="openViewer(gallery)">预览展厅</button>
+              <template v-if="isOwner">
+                <button type="button" @click="openRenameModal(gallery)">重命名</button>
+                <button type="button" class="card-menu-danger" @click="openDeleteModal(gallery)">删除空间…</button>
+              </template>
             </div>
           </div>
         </article>
-
       </div>
 
-      <div v-else-if="!loading && !loadError && filteredGalleries.length" class="space-list">
-        <button
-          v-for="gallery in filteredGalleries"
-          :key="gallery.id"
-          class="list-row"
-          type="button"
-          @click="navigateToWorkspace(gallery.id)"
-        >
-          <img v-if="gallery.coverThumbnailUrl && !failedCoverUrls.has(gallery.coverThumbnailUrl)"
-            :key="gallery.coverThumbnailUrl" :src="galleryMediaUrl(gallery.coverThumbnailUrl)" class="list-thumb" alt="" loading="lazy"
-            @error="failedCoverUrls.add(gallery.coverThumbnailUrl!)" />
-          <span v-else class="list-thumb cover-placeholder" aria-hidden="true"><Icon name="photo" :size="22" /></span>
-          <div class="list-copy">
-            <div class="list-head-row">
-              <strong>{{ gallery.name }}</strong>
-              <span v-if="gallery.hasUnpublishedConfig" class="badge-draft-config-inline">待发布配置</span>
-            </div>
-            <div class="list-meta-line">
-              <span>{{ gallery.photoCount ?? 0 }} 张照片</span>
-              <span v-if="gallery.processingCount && gallery.processingCount > 0" class="metric-badge processing-sm">{{ gallery.processingCount }} 处理中</span>
-              <span v-if="gallery.failedPhotoCount && gallery.failedPhotoCount > 0" class="metric-badge failed-sm">{{ gallery.failedPhotoCount }} 失败</span>
-              <span>更新于 {{ formatTime(gallery.updatedAt || gallery.createdAt) }}</span>
-            </div>
-          </div>
-          <span class="status-meta">
-            <span class="status-dot" :class="gallery.status === 'PUBLISHED' ? 'is-live' : 'is-draft'"></span>
-            <span>{{ statusLabel(gallery) }}</span>
-          </span>
-          <span class="vis-tag" :class="gallery.visibility === 'PUBLIC' ? 'is-public' : gallery.visibility === 'PASSWORD' ? 'is-password' : 'is-private'">
-            {{ visibilityLabel(gallery) }}
-          </span>
-        </button>
-      </div>
-
-      <div v-else-if="!loading && !loadError && galleries.length && !filteredGalleries.length" class="space-empty">
+      <div v-else-if="!loading && !loadError && galleries.length" class="space-empty">
+        <Icon name="search" :size="30" aria-hidden="true" />
         <h3>没有匹配的相册</h3>
-        <button class="btn btn-secondary" type="button" @click="searchQuery = ''; statusFilter = 'ALL'">重置筛选</button>
+        <button class="btn btn-secondary" type="button" @click="resetFilters">重置筛选</button>
       </div>
 
       <div v-else-if="loading" class="space-loading" role="status" aria-live="polite">
@@ -783,7 +692,7 @@ async function handleDeleteGallery() {
         <h2>还没有相册</h2>
         <p>{{ canCreateGallery ? '新建相册，添加想要分享的照片。' : '切换到其他工作区，或联系所有者创建相册。' }}</p>
       </div>
-    </div>
+    </section>
 
     <Transition name="modal-fade">
       <div v-if="showCreateModal" class="modal-backdrop" @click.self="!creating && (showCreateModal = false)">

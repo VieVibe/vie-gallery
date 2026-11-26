@@ -54,7 +54,7 @@ watch([gridRef, () => props.canWrite, sortingEnabled], ([element, canWriteValue,
     draggable: '.photo-card',
     filter: 'button, input, a',
     preventOnFilter: false,
-    animation: 150,
+    animation: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150,
     ghostClass: 'sortable-ghost',
     chosenClass: 'sortable-chosen',
     onEnd: event => {
@@ -75,17 +75,6 @@ function handleBatchDelete() {
   emit('batch-delete', Array.from(selectedPhotoIds.value))
 }
 
-function canMoveUp(photo: WorkspacePhoto) {
-  if (!sortingEnabled.value) return false
-  return props.photos.findIndex(p => p.id === photo.id) > 0
-}
-
-function canMoveDown(photo: WorkspacePhoto) {
-  if (!sortingEnabled.value) return false
-  const index = props.photos.findIndex(p => p.id === photo.id)
-  return index >= 0 && index < props.photos.length - 1
-}
-
 function handlePhotoOpen(photo: WorkspacePhoto) {
   const fullIndex = props.photos.findIndex(p => p.id === photo.id)
   if (fullIndex !== -1) {
@@ -99,7 +88,7 @@ defineExpose({ clearSelection })
 <template>
   <div class="photo-grid-container">
     <!-- Filter Pills & Multi-Select Bar -->
-    <div class="photo-filter-toolbar">
+    <div v-if="photos.length" class="photo-filter-toolbar">
       <div class="filter-pills-group" role="group" aria-label="照片状态筛选">
         <button
           class="category-pill"
@@ -185,16 +174,16 @@ defineExpose({ clearSelection })
     </p>
 
     <!-- Photos Grid -->
-    <div v-if="filteredPhotos.length" ref="gridRef" class="photos-masonry-grid photo-grid" aria-live="polite">
+    <div v-if="filteredPhotos.length" ref="gridRef" class="photos-masonry-grid photo-grid">
       <slot name="dropzone"></slot>
       <GalleryPhotoCard
-        v-for="photo in filteredPhotos"
+        v-for="(photo, index) in filteredPhotos"
         :key="photo.id"
         :photo="photo"
         :can-write="canWrite"
         :selected="selectedPhotoIds.has(photo.id)"
-        :can-move-up="canMoveUp(photo)"
-        :can-move-down="canMoveDown(photo)"
+        :can-move-up="sortingEnabled && index > 0"
+        :can-move-down="sortingEnabled && index < photos.length - 1"
         @open="handlePhotoOpen(photo)"
         @set-cover="$emit('set-cover', photo)"
         @delete="$emit('delete', photo)"

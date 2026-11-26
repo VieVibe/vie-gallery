@@ -1,8 +1,26 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
 import Icon from './Icon.vue'
+import AlbumImage from './AlbumImage.vue'
+import { galleryMediaUrl, type PublicGalleryResponse, type PublicPhoto } from '@vie/gallery-contracts'
 
-const props = defineProps<{ show: boolean; galleryTitle: string; photoCount: number }>()
+const props = defineProps<{
+  show: boolean
+  galleryTitle: string
+  photoCount: number
+  galleryCover?: PublicGalleryResponse['cover']
+  firstPhoto?: PublicPhoto
+  visibility?: PublicGalleryResponse['visibility']
+}>()
+const coverSources = computed(() => [
+  props.galleryCover?.previewUrl, props.galleryCover?.displayUrl, props.galleryCover?.url,
+  props.firstPhoto?.previewUrl, props.firstPhoto?.thumbnailUrl
+].filter((url): url is string => !!url).map(galleryMediaUrl))
+const accessHint = computed(() => {
+  if (props.visibility === 'PASSWORD') return '朋友打开链接后需要输入相册密码。'
+  if (props.visibility === 'PRIVATE') return '请将专属分享链接发送给受邀的朋友。'
+  return '收到链接的人将按展厅的访问设置进入。'
+})
 const emit = defineEmits<{ close: [] }>()
 const dialog = ref<HTMLDialogElement | null>(null)
 const closeButton = ref<HTMLButtonElement | null>(null)
@@ -109,7 +127,12 @@ function keepFocusInDialog(event: KeyboardEvent) {
           <h2 :id="titleId">把影展分享给朋友</h2>
           <button ref="closeButton" class="sheet-close" type="button" aria-label="关闭分享" @click="emit('close')"><Icon name="x" :size="20" /></button>
         </header>
-        <p class="sheet-gallery">{{ galleryTitle || '光影之间' }}<span>{{ photoCount }} 件作品</span></p>
+        <div class="sheet-gallery">
+          <div class="share-cover" aria-hidden="true">
+            <AlbumImage :sources="coverSources" alt="" eager><Icon name="photo" :size="23" /></AlbumImage>
+          </div>
+          <div><strong>{{ galleryTitle || '光影之间' }}</strong><span>{{ photoCount }} 件作品</span></div>
+        </div>
         <p v-if="isWeChat || isQq" class="app-guide">在{{ isWeChat ? '微信' : 'QQ' }}中，点击浏览器右上角菜单，即可转发给朋友{{ isWeChat ? '或分享到朋友圈' : '' }}。</p>
         <div class="link-field">
           <label :for="linkId">展厅链接</label>
@@ -119,7 +142,7 @@ function keepFocusInDialog(event: KeyboardEvent) {
           <button class="sheet-action copy" type="button" :disabled="copying" @click="copyLink"><Icon :name="copied ? 'check' : 'share'" :size="17" /><span>{{ copying ? '正在复制…' : copied ? '链接已复制' : '复制链接' }}</span></button>
           <button v-if="canNativeShare" class="sheet-action native" type="button" :disabled="busy" @click="nativeShare"><Icon name="share" :size="17" /><span>{{ busy ? '正在打开…' : '更多分享方式' }}</span></button>
         </div>
-        <p class="sheet-feedback" role="status" aria-live="polite">{{ message || '收到链接的人将按展厅的访问设置进入。' }}</p>
+        <p class="sheet-feedback" role="status" aria-live="polite">{{ message || accessHint }}</p>
       </div>
     </dialog>
   </Teleport>
@@ -132,10 +155,21 @@ function keepFocusInDialog(event: KeyboardEvent) {
 .sheet-header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .sheet-header h2 { padding-top: 5px; font: 400 25px/1.4 var(--font-serif); text-wrap: balance; }
 .sheet-close { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; margin: -4px -8px 0 0; border-radius: 6px; color: #626c65; }.sheet-close:hover { background: #e8ede4; color: #202824; }
-.sheet-gallery { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; color: #202824; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }.sheet-gallery span { color: #626c65; }
+.sheet-gallery { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 18px; padding-block: 14px; border-block: 1px solid #d6e0d3; color: #243b2c; overflow-wrap: anywhere; }
+.share-cover { position: relative; height: 68px; background: #e6ebdf; overflow: hidden; }
+.share-cover :deep(img) { object-fit: cover; }
+.sheet-gallery strong { display: block; font: 500 20px/1.4 var(--font-serif); }
+.sheet-gallery span { color: #526358; font-size: .8125rem; }
 .app-guide { margin-top: 20px; padding: 14px 16px; border-radius: 6px; background: #e8ede4; color: #355d49; font-size: 13px; line-height: 1.8; }
 .link-field { margin-top: 28px; }.link-field label { display: block; margin-bottom: 10px; font-size: 12px; font-weight: 500; }.link-field input { width: 100%; min-height: 46px; padding: 12px; border: 1px solid #bdc7b8; border-radius: 6px; color: #626c65; background: #f4f3ef; font-size: 13px; }
 .sheet-actions { display: flex; gap: 10px; margin-top: 16px; }.sheet-action { display: inline-flex; align-items: center; justify-content: center; gap: 9px; flex: 1; min-height: 46px; border-radius: 6px; font-size: 13px; font-weight: 500; }.copy { color: #fffefa; background: #26735d; }.copy:hover:not(:disabled) { background: #1b5746; }.native { color: #26735d; background: #e8ede4; }.native:hover:not(:disabled) { background: #dae4d6; }.sheet-action:disabled { opacity: .6; cursor: wait; }
 .sheet-feedback { min-height: 38px; margin-top: 18px; color: #626c65; font-size: 12px; line-height: 1.7; }
 @media (max-width: 600px) { .share-sheet { inset: auto 0 0; width: 100%; max-height: calc(100dvh - 40px); margin: 0; border-radius: 16px 16px 0 0; }.share-content { padding: 24px 24px max(24px, env(safe-area-inset-bottom)); }.sheet-header h2 { font-size: 23px; } }
+@media (prefers-reduced-motion: no-preference) {
+  .share-sheet[open] { animation: share-arrive .2s cubic-bezier(.2,.75,.2,1); }
+  .share-sheet::backdrop { animation: shade-in .15s ease-out; }
+  @keyframes share-arrive { from { opacity: .3; transform: translateY(var(--sheet-travel, 8px)); } }
+  @keyframes shade-in { from { opacity: 0; } }
+}
+@media (max-width: 600px) { .share-sheet { --sheet-travel: 28px; } }
 </style>

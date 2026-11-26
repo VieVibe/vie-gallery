@@ -3,6 +3,7 @@ import { nextTick, onUnmounted, ref, watch } from 'vue'
 import type { WorkspacePhoto } from '../../composables/useGalleryWorkspace'
 import { formatBytes } from '../../lib/format'
 import Icon from '../Icon.vue'
+import PhotoThumbnail from './PhotoThumbnail.vue'
 
 defineProps<{
   photo: WorkspacePhoto
@@ -77,16 +78,7 @@ function handleSelectClick(event: Event) {
     @keydown.space.self.prevent="$emit('open')"
   >
     <div class="photo-img-box">
-      <img
-        v-if="photo.thumbnailUrl"
-        :src="photo.thumbnailUrl"
-        :alt="photo.title || '照片'"
-        loading="lazy"
-        class="photo-image"
-      />
-      <div v-else class="empty-thumb">
-        <Icon name="photo" :size="28" />
-      </div>
+      <PhotoThumbnail :photo="photo" />
 
       <!-- Multi-select checkbox button -->
       <button
@@ -119,7 +111,7 @@ function handleSelectClick(event: Event) {
         <span v-if="formatBytes(photo.byteSize)">{{ formatBytes(photo.byteSize) }}</span>
         <span v-else-if="photo.width && photo.height">{{ photo.width }}×{{ photo.height }}</span>
         <span v-else>—</span>
-        <div ref="menuRoot" class="meta-actions" @click.stop>
+        <div ref="menuRoot" class="meta-actions" @click.stop @focusout="!($event.currentTarget as HTMLElement).contains($event.relatedTarget as Node | null) && (menuOpen = false)">
           <button ref="menuTrigger" class="ghost-btn" type="button" aria-label="更多操作" :aria-expanded="menuOpen" @click="toggleMenu">
             <Icon name="more" :size="16" />
           </button>
@@ -163,21 +155,6 @@ function handleSelectClick(event: Event) {
   aspect-ratio: 4 / 3;
   background: var(--bg-app);
   overflow: hidden;
-}
-
-.photo-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.empty-thumb {
-  width: 100%;
-  height: 100%;
-  display: grid;
-  place-items: center;
-  color: var(--text-tertiary);
 }
 
 .select-btn {

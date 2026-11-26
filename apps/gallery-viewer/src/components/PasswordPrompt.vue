@@ -11,6 +11,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   unlock: [password: string]
+  edit: []
 }>()
 
 const password = ref('')
@@ -42,7 +43,7 @@ function handleSubmit() {
   <VisitorStateShell>
       <span class="state-icon"><Icon name="lock" :size="28" :stroke-width="1.5" /></span>
       <h1>{{ galleryTitle || '一场为你保留的影展' }}</h1>
-      <p :id="helpId" class="state-description">这场影展设有访问密码。输入创作者提供的密码，即可进入欣赏。</p>
+      <p :id="helpId" class="state-description">输入创作者提供的访问密码，即可打开相册。</p>
       <form @submit.prevent="handleSubmit" class="password-form" :aria-busy="isUnlocking">
         <label :for="inputId">访问密码</label>
         <div class="input-container">
@@ -60,7 +61,7 @@ function handleSubmit() {
             spellcheck="false"
             autofocus
             class="password-input"
-            @input="localError = ''"
+            @input="localError = ''; emit('edit')"
           />
           <button
             type="button"

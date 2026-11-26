@@ -13,7 +13,7 @@
 .loader-line::after, .scene-loading-line::after { content: ''; position: absolute; inset: 0; width: 45%; background: #26735d; animation: load-line 1.8s ease-in-out infinite; }
 @keyframes load-line { 0% { transform: translateX(-110%); } 100% { transform: translateX(330%); } }
 .exhibition-header { position: fixed; z-index: 40; inset: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 16px clamp(20px, 3.4vw, 56px); color: var(--text-main); background: var(--bg-deep); transition: opacity .3s, transform .3s; }
-.is-editorial .exhibition-header { position: relative; border-bottom: 1px solid #dcded1; }
+.is-editorial .exhibition-header { position: sticky; top: 0; border-bottom: 1px solid #dcded1; }
 .is-spatial .exhibition-header { background: #162019; }
 .is-spatial.is-live-preview .exhibition-header { background: transparent; }
 .exhibition-brand { display: flex; flex-shrink: 0; align-items: center; gap: 10px; padding: 0; min-height: 44px; font: 400 23px/1.4 var(--font-serif); letter-spacing: .08em; color: inherit; white-space: nowrap; }

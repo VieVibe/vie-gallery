@@ -3,12 +3,15 @@ import { test, expect, type Page } from '@playwright/test'
 const galleryId = '33333333-3333-4333-8333-333333333333'
 const portrait = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="2400"><rect width="800" height="2400" fill="#c2d7cb"/></svg>')}`
 
-async function mockWorkspace(page: Page, beforeOpen?: (page: Page) => Promise<void>) {
+async function mockWorkspace(page: Page, beforeOpen?: (page: Page) => Promise<void>, extraPhotos = 0) {
   const photos = [
     { id: 'photo-one', title: '第一张作品', status: 'READY', thumbnailUrl: portrait },
     { id: 'photo-two', title: '第二张作品', status: 'READY', thumbnailUrl: portrait },
     { id: 'photo-processing', title: '正在处理的作品', status: 'PROCESSING' },
-    { id: 'photo-unavailable', title: '暂时失联的作品', status: 'READY', thumbnailUrl: '/unavailable-photo.png' }
+    { id: 'photo-unavailable', title: '暂时失联的作品', status: 'READY', thumbnailUrl: '/unavailable-photo.png' },
+    ...Array.from({ length: extraPhotos }, (_, i) => ({
+      id: `extra-${i}`, title: `作品 ${i + 5}`, status: 'READY', thumbnailUrl: portrait
+    }))
   ].map((photo, index) => ({ ...photo, galleryId, sortOrder: index, cover: false, width: 800, height: 2400, byteSize: 204800 }))
   const orders: string[][] = []
   await page.route('**/unavailable-photo.png', route => route.fulfill({ status: 404, body: '' }))
@@ -34,7 +37,7 @@ async function mockWorkspace(page: Page, beforeOpen?: (page: Page) => Promise<vo
   })
   await beforeOpen?.(page)
   await page.goto(`/app/galleries/${galleryId}`)
-  await expect(page.locator('.photo-card')).toHaveCount(4)
+  await expect(page.locator('.photo-card')).toHaveCount(photos.length)
   return { orders }
 }
 
@@ -71,6 +74,38 @@ test('retry refreshes the task queue even when an older read is still pending', 
     releaseOlderRead()
   }
   await expect(panel.getByRole('heading', { name: '排队中 · 1' })).toBeVisible({ timeout: 2500 })
+})
+
+test('a mobile creator can upload and return to the album actions from deep in a collection', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 })
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await mockWorkspace(page, undefined, 36)
+  await page.locator('.photo-card').nth(24).scrollIntoViewIfNeeded()
+  const upload = page.getByRole('button', { name: '上传照片', exact: true })
+  await expect(upload).toBeInViewport({ ratio: 1 })
+  const chooser = page.waitForEvent('filechooser')
+  await upload.focus()
+  await page.keyboard.press('Enter')
+  await chooser
+  const back = page.getByRole('button', { name: '返回相册操作', exact: true })
+  await expect(back).toBeInViewport({ ratio: 1 })
+  await back.focus()
+  await page.keyboard.press('Enter')
+  const title = page.getByRole('heading', { name: '交互检查' })
+  await expect(title).toBeFocused()
+  await expect(title).toBeInViewport()
+  await expect(page.locator('.workspace-spatial > summary')).toBeInViewport()
+})
+
+test('a failed thumbnail has a fallback in both editing views', async ({ page }) => {
+  await mockWorkspace(page)
+  const card = page.locator('.photo-card').filter({ hasText: '暂时失联的作品' })
+  await expect(card.getByText('缩略图不可用')).toBeVisible()
+  await expect(card.locator('img')).toHaveCount(0)
+  await page.getByRole('button', { name: '列表视图' }).click()
+  const row = page.locator('.photo-list-row').filter({ hasText: '暂时失联的作品' })
+  await expect(row.getByTitle('缩略图不可用')).toBeVisible()
+  await expect(row.locator('img')).toHaveCount(0)
 })
 
 test('keyboard help traps focus, pauses workspace shortcuts and restores the trigger', async ({ page }) => {

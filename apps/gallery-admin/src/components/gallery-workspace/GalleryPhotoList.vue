@@ -4,6 +4,7 @@ import Sortable from 'sortablejs'
 import type { WorkspacePhoto } from '../../composables/useGalleryWorkspace'
 import { usePhotoCuration } from '../../composables/usePhotoCuration'
 import Icon from '../Icon.vue'
+import PhotoThumbnail from './PhotoThumbnail.vue'
 
 const props = defineProps<{
   photos: WorkspacePhoto[]
@@ -60,7 +61,7 @@ watch([listRef, () => props.canWrite, sortingEnabled], ([element, canWriteValue,
     filter: 'button, input, a',
     preventOnFilter: false,
     handle: '.row-drag-handle',
-    animation: 150,
+    animation: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150,
     ghostClass: 'sortable-ghost',
     chosenClass: 'sortable-chosen',
     onEnd: event => {
@@ -130,17 +131,6 @@ function statusLabel(status?: string) {
   return '已就绪'
 }
 
-function canMoveUp(photo: WorkspacePhoto) {
-  if (!sortingEnabled.value) return false
-  return props.photos.findIndex(p => p.id === photo.id) > 0
-}
-
-function canMoveDown(photo: WorkspacePhoto) {
-  if (!sortingEnabled.value) return false
-  const index = props.photos.findIndex(p => p.id === photo.id)
-  return index >= 0 && index < props.photos.length - 1
-}
-
 function handleBatchDelete() {
   if (selectedPhotoIds.value.size === 0) return
   emit('batch-delete', Array.from(selectedPhotoIds.value))
@@ -151,7 +141,7 @@ defineExpose({ clearSelection })
 
 <template>
   <div class="photo-list-container">
-    <div class="photo-filter-toolbar">
+    <div v-if="photos.length" class="photo-filter-toolbar">
       <div class="filter-pills-group" role="group" aria-label="照片状态筛选">
         <button
           class="category-pill"
@@ -236,7 +226,7 @@ defineExpose({ clearSelection })
 
     <div v-if="filteredPhotos.length" ref="listRef" class="photo-rows">
       <div
-        v-for="photo in filteredPhotos"
+        v-for="(photo, index) in filteredPhotos"
         :key="photo.id"
         :data-photo-id="photo.id"
         class="photo-list-row"
@@ -259,8 +249,7 @@ defineExpose({ clearSelection })
           <Icon name="grip" :size="14" />
         </span>
         <button class="row-preview" type="button" :aria-label="`预览照片：${photo.title || '未命名照片'}`" @click.stop="emit('open', photo)">
-          <img v-if="photo.thumbnailUrl" :src="photo.thumbnailUrl" class="row-thumb" loading="lazy" alt="" />
-          <span v-else class="row-thumb row-thumb-empty"><Icon name="photo" :size="16" /></span>
+          <PhotoThumbnail class="row-thumb" :photo="photo" compact />
         </button>
 
         <div class="row-main" @click.stop>
@@ -312,7 +301,7 @@ defineExpose({ clearSelection })
             class="row-action-btn"
             type="button"
             title="前移"
-            :disabled="!canMoveUp(photo)"
+            :disabled="!sortingEnabled || index === 0"
             @click="emit('move-photo', { id: photo.id, direction: 'up' })"
           >
             <Icon name="arrow-up" :size="14" />
@@ -321,7 +310,7 @@ defineExpose({ clearSelection })
             class="row-action-btn"
             type="button"
             title="后移"
-            :disabled="!canMoveDown(photo)"
+            :disabled="!sortingEnabled || index === photos.length - 1"
             @click="emit('move-photo', { id: photo.id, direction: 'down' })"
           >
             <Icon name="arrow-down" :size="14" />
@@ -332,7 +321,7 @@ defineExpose({ clearSelection })
         </div>
       </div>
     </div>
-    <div v-else class="list-empty-panel">
+    <div v-else-if="photos.length || !canWrite" class="list-empty-panel">
       <template v-if="photos.length">
         <p class="list-filtered-empty">没有符合筛选条件的照片</p>
         <p class="list-filtered-empty-sub">换个状态标签或搜索词试试。</p>
@@ -568,6 +557,7 @@ defineExpose({ clearSelection })
   padding: 0;
   border: 0;
   border-radius: 8px;
+  overflow: hidden;
   background: transparent;
   flex-shrink: 0;
   cursor: pointer;
@@ -575,10 +565,6 @@ defineExpose({ clearSelection })
 
 .row-preview .row-thumb {
   display: block;
-}
-
-.row-preview .row-thumb-empty {
-  display: grid;
 }
 
 .select-box {

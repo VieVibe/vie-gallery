@@ -18,6 +18,7 @@ import LightboxModal from '../components/LightboxModal.vue'
 import GalleryUploadDropzone from '../components/gallery-workspace/GalleryUploadDropzone.vue'
 import GalleryPhotoGrid from '../components/gallery-workspace/GalleryPhotoGrid.vue'
 import GalleryPhotoList from '../components/gallery-workspace/GalleryPhotoList.vue'
+import PhotoThumbnail from '../components/gallery-workspace/PhotoThumbnail.vue'
 import UploadTaskCenter from '../components/gallery-workspace/UploadTaskCenter.vue'
 import ShareDeliveryPanel from '../components/gallery-workspace/ShareDeliveryPanel.vue'
 import VersionMetadataFields from '../components/gallery-config/VersionMetadataFields.vue'
@@ -48,6 +49,25 @@ const styleSaving = ref(false)
 const spatialOpened = ref(false)
 const showAlbumOptions = ref(false)
 const albumOptionsTrigger = ref<HTMLButtonElement | null>(null)
+const albumTitle = ref<HTMLHeadingElement | null>(null)
+const toolbarStart = ref<HTMLElement | null>(null)
+const toolbarPinned = ref(false)
+
+watch(toolbarStart, (start, _, onCleanup) => {
+  toolbarPinned.value = false
+  if (!start) return
+  const observer = new IntersectionObserver(([entry]) => {
+    toolbarPinned.value = !!entry && !entry.isIntersecting && entry.boundingClientRect.top < 0
+  })
+  observer.observe(start)
+  onCleanup(() => observer.disconnect())
+})
+
+function returnToAlbum() {
+  albumTitle.value?.focus({ preventScroll: true })
+  albumTitle.value?.scrollIntoView({ block: 'start' })
+}
+
 const publishedShareTrigger = ref<HTMLButtonElement | null>(null)
 
 const photoViewMode = ref<'grid' | 'list'>('grid')
@@ -84,6 +104,8 @@ function selectLightboxPhoto(index: number) {
 }
 
 const albumPublished = computed(() => workspace.gallery.value?.status === 'PUBLISHED')
+const coverIndex = computed(() => workspace.photos.value.findIndex(photo => photo.cover && photo.thumbnailUrl))
+const coverPhoto = computed(() => workspace.photos.value[coverIndex.value])
 const hasReadyPhotos = computed(() => workspace.photos.value.some(photo => photo.status === 'READY'))
 const settingsChanged = computed(() => !!publishCenter.readiness.value?.configDraftChanged)
 const blockers = computed(() => publishCenter.readiness.value?.blockers ?? [])
@@ -355,6 +377,7 @@ async function confirmBatchDelete() {
     const { succeeded, failed } = await workspace.deletePhotos(batchPhotoIdsToDelete.value)
     showBatchDeleteModal.value = false
     photoGridRef.value?.clearSelection()
+    photoListRef.value?.clearSelection()
     if (failed === 0) {
       toast.success(`成功从展厅移除 ${succeeded} 张照片。`)
     } else {
@@ -574,13 +597,20 @@ async function reloadGalleryAccess() {
         <button class="btn btn-primary" type="button" @click="reloadGalleryAccess">重新加载</button>
       </div>
     </div>
-    <div v-else-if="workspace.gallery.value?.id !== galleryId" class="workspace-state" role="status">正在打开相册…</div>
+    <div v-else-if="workspace.gallery.value?.id !== galleryId" class="workspace-state workspace-loading" role="status">
+      <p>正在打开相册…</p>
+      <div class="loading-tiles" aria-hidden="true"><span v-for="i in 4" :key="i"></span></div>
+    </div>
     <div v-else-if="workspace.gallery.value" class="workspace-body">
       <RouterLink to="/" class="workspace-back"><Icon name="arrow-left" :size="16" />我的相册</RouterLink>
 
       <section class="workspace-heading" aria-labelledby="workspace-album-title">
+        <button v-if="coverPhoto" class="workspace-cover" type="button" aria-label="查看相册封面" @click="openLightbox(coverIndex)">
+          <PhotoThumbnail :photo="coverPhoto" compact />
+          <span>封面</span>
+        </button>
         <div class="workspace-title">
-          <h1 id="workspace-album-title">{{ workspace.gallery.value.name }}</h1>
+          <h1 id="workspace-album-title" ref="albumTitle" tabindex="-1">{{ workspace.gallery.value.name }}</h1>
           <div class="workspace-meta">
             <span class="workspace-status" :class="{ 'is-published': albumPublished }">
               {{ albumPublished ? '已发布' : workspace.gallery.value.status === 'ARCHIVED' ? '已归档' : '草稿' }}
@@ -632,9 +662,58 @@ async function reloadGalleryAccess() {
         </button>
       </div>
 
+      <div v-if="canPhotoWrite || taskCenter.tasks.value.length || canConfig" class="workspace-disclosures">
+        <details
+          v-if="canPhotoWrite || taskCenter.tasks.value.length"
+          class="workspace-disclosure"
+        >
+          <summary>
+            <Icon name="clock" :size="17" />
+            <span>上传进度与记录</span>
+            <span v-if="workspace.uploading.value || processingCount || failedCount" class="disclosure-status" role="status">
+              <span v-if="workspace.uploading.value">上传中 {{ workspace.uploadProgress.value }}%</span>
+              <span v-if="processingCount">{{ processingCount }} 张照片处理中</span>
+              <span v-if="failedCount">{{ failedCount }} 张处理失败</span>
+            </span>
+            <Icon name="chevron-down" :size="16" class="disclosure-chevron" />
+          </summary>
+          <UploadTaskCenter
+            :tasks="taskCenter.tasks.value"
+            :summary="taskCenter.summary.value"
+            :loading="taskCenter.loading.value"
+            :refreshing="taskCenter.refreshing.value"
+            :error="taskCenter.error.value"
+            :can-write="canPhotoWrite"
+            :filter="taskCenter.filter.value"
+            @update:filter="taskCenter.filter.value = $event"
+            @refresh="taskCenter.load(true)"
+            @retry="handleRetryTask"
+            @cancel="handleCancelTask"
+          />
+        </details>
+
+        <details v-if="canConfig" class="workspace-disclosure workspace-spatial" @toggle="revealSpatialSettings">
+          <summary><Icon name="gallery" :size="17" /><span>空间展示</span><Icon name="chevron-down" :size="16" class="disclosure-chevron" /></summary>
+          <QuickStylePicker
+            v-if="spatialOpened"
+            :key="galleryId"
+            :gallery-id="galleryId"
+            :can-write="canConfig && !publishCenter.publishing.value"
+            :photos="workspace.photos.value"
+            @busy="styleSaving = $event"
+            @saved="publishCenter.loadReadiness"
+          />
+          <RouterLink class="workspace-config-link" :to="{ name: 'gallery-config', params: { id: galleryId } }">打开空间设计与版本</RouterLink>
+        </details>
+      </div>
+
       <section id="workspace-photos" class="photo-panel" aria-labelledby="workspace-photos-title">
-        <div class="photo-toolbar">
-          <div><h2 id="workspace-photos-title">照片 <span class="photo-total">{{ workspace.photos.value.length }}</span></h2></div>
+        <div ref="toolbarStart" class="toolbar-start" aria-hidden="true"></div>
+        <div class="photo-toolbar" :class="{ 'is-pinned': toolbarPinned }">
+          <div class="photo-toolbar-title">
+            <button v-if="toolbarPinned" class="return-to-album" type="button" aria-label="返回相册操作" title="返回相册操作" @click="returnToAlbum"><Icon name="arrow-up" :size="17" /></button>
+            <h2 id="workspace-photos-title">照片 <span class="photo-total">{{ workspace.photos.value.length }}</span></h2>
+          </div>
           <div class="photo-tools">
             <GalleryUploadDropzone
               v-if="canPhotoWrite && workspace.photos.value.length"
@@ -719,53 +798,8 @@ async function reloadGalleryAccess() {
             @update-title="handleUpdatePhotoTitle"
             @retry-failed="handleRetryFailedGrid"
           />
-          <p v-if="!workspace.photos.value.length && !canPhotoWrite" class="list-empty">还没有照片。</p>
         </div>
       </section>
-
-      <details
-        v-if="canPhotoWrite || taskCenter.tasks.value.length"
-        class="workspace-disclosure"
-        :open="workspace.uploading.value || processingCount > 0 || failedCount > 0"
-      >
-        <summary>
-          <Icon name="clock" :size="17" />
-          <span>上传进度与记录</span>
-          <span v-if="processingCount || failedCount" class="disclosure-status" role="status">
-            <span v-if="processingCount">{{ processingCount }} 张照片处理中</span>
-            <span v-if="failedCount">{{ failedCount }} 张处理失败</span>
-          </span>
-          <Icon name="chevron-down" :size="16" class="disclosure-chevron" />
-        </summary>
-        <UploadTaskCenter
-          :tasks="taskCenter.tasks.value"
-          :summary="taskCenter.summary.value"
-          :loading="taskCenter.loading.value"
-          :refreshing="taskCenter.refreshing.value"
-          :error="taskCenter.error.value"
-          :can-write="canPhotoWrite"
-          :filter="taskCenter.filter.value"
-          @update:filter="taskCenter.filter.value = $event"
-          @refresh="taskCenter.load(true)"
-          @retry="handleRetryTask"
-          @cancel="handleCancelTask"
-        />
-
-      </details>
-
-      <details v-if="canConfig" class="workspace-disclosure workspace-spatial" @toggle="revealSpatialSettings">
-        <summary><Icon name="gallery" :size="17" /><span>空间展示</span><Icon name="chevron-down" :size="16" class="disclosure-chevron" /></summary>
-        <QuickStylePicker
-          v-if="spatialOpened"
-          :key="galleryId"
-          :gallery-id="galleryId"
-          :can-write="canConfig && !publishCenter.publishing.value"
-          :photos="workspace.photos.value"
-          @busy="styleSaving = $event"
-          @saved="publishCenter.loadReadiness"
-        />
-        <RouterLink class="workspace-config-link" :to="{ name: 'gallery-config', params: { id: galleryId } }">打开空间设计与版本</RouterLink>
-      </details>
     </div>
 
     <ShareDeliveryPanel

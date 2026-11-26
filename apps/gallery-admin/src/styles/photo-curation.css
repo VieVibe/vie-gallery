@@ -1,4 +1,11 @@
 /* Shared refinements for grid and list photo curation. */
+.photo-filter-toolbar { justify-content: flex-start; gap: 8px 12px; }
+.photo-search-input { margin-inline-start: auto; }
+.category-pill { border: 1px solid #d4ddcf; border-radius: 6px; background: #f4f5ee; color: #4e6252; }
+.category-pill.active { border-color: #354e3b; background: #354e3b; color: #fffefa; box-shadow: none; }
+.category-pill.active .count-tag { background: #ffffff24; color: #fffefa; }
+.photo-list-row.is-selected { border-color: #79947c; background: #edf3e9; box-shadow: inset 3px 0 #45664a; }
+.slide-up-enter-active, .slide-up-leave-active { transition: opacity 140ms ease, transform 140ms ease; }
 .filter-summary {
   display: flex;
   align-items: center;
@@ -70,6 +77,7 @@
 @media (max-width: 600px) {
   .photo-search-input {
     width: 100%;
+    margin-inline-start: 0;
     font-size: 16px;
   }
 

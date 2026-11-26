@@ -1,6 +1,59 @@
 import { test, expect } from '@playwright/test'
 import { mockGallery } from './helpers/mockGallery'
 
+test('photo details can be enlarged, panned with the keyboard and reset on the next photo', async ({ page }) => {
+  await mockGallery(page, { defaultView: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/g/effects-fixture')
+  const opener = page.getByRole('button', { name: '查看照片 1：Sample 1', exact: true })
+  await opener.click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: '放大照片' }).click()
+  const detail = dialog.getByRole('region', { name: '照片细节' })
+  await expect(detail).toBeFocused()
+  const x = await detail.evaluate(element => element.scrollLeft)
+  expect(x).toBeGreaterThan(0)
+  await page.keyboard.press('ArrowLeft')
+  await expect.poll(() => detail.evaluate(element => element.scrollLeft)).toBeLessThan(x)
+  await expect(dialog).toHaveAccessibleName('Sample 1')
+  await dialog.getByRole('button', { name: '下一张' }).click()
+  await expect(dialog).toHaveAccessibleName('Sample 2')
+  await expect(dialog.getByRole('button', { name: '放大照片' })).toBeEnabled()
+  await expect(detail).toHaveCount(0)
+  await expect(dialog.locator('.main-image')).toHaveCSS('animation-name', 'none')
+  await page.keyboard.press('Escape')
+  await expect(opener).toBeFocused()
+})
+
+test.describe('touch reading', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })
+  test('a swipe pans an enlarged image and advances a fitted image', async ({ page }) => {
+    await mockGallery(page, { defaultView: true })
+    await page.goto('/g/effects-fixture')
+    await page.getByRole('button', { name: '查看照片 1：Sample 1', exact: true }).tap()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: '放大照片' }).tap()
+    const viewport = dialog.locator('.image-wrapper')
+    const before = await viewport.evaluate(element => element.scrollLeft)
+    const cdp = await page.context().newCDPSession(page)
+    async function swipeLeft() {
+      const bounds = (await viewport.boundingBox())!
+      await cdp.send('Input.synthesizeScrollGesture', {
+        x: bounds.x + bounds.width * .75, y: bounds.y + bounds.height / 2,
+        xDistance: -108, yDistance: 0, gestureSourceType: 'touch', preventFling: true
+      })
+    }
+    await swipeLeft()
+    await expect.poll(() => viewport.evaluate(element => element.scrollLeft)).toBeGreaterThan(before)
+    await expect(dialog).toHaveAccessibleName('Sample 1')
+    await dialog.getByRole('button', { name: '还原整张照片' }).tap()
+    await expect(dialog.getByRole('region', { name: '照片细节' })).toHaveCount(0)
+    await swipeLeft()
+    await expect(dialog).toHaveAccessibleName('Sample 2')
+  })
+})
+
 test('share dialog supports keyboard dismissal, focus return and manual copy recovery', async ({ page }, info) => {
   const { errors } = await mockGallery(page)
   await page.addInitScript(() => {
@@ -12,6 +65,7 @@ test('share dialog supports keyboard dismissal, focus return and manual copy rec
   await share.click()
   const dialog = page.getByRole('dialog', { name: '把影展分享给朋友' })
   await expect(dialog).toBeVisible()
+  await expect(dialog.locator('.share-cover img')).toHaveAttribute('src', '/fixtures/photo-0.svg')
   await expect(dialog.getByRole('button', { name: '关闭分享' })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
@@ -88,6 +142,8 @@ test('password entry has labels, preserves retry feedback and opens the gallery'
   await page.setViewportSize({ width: 320, height: 700 })
   await page.screenshot({ path: info.outputPath('password-mobile.png') })
   await password.fill('correct')
+  await expect(password).toHaveAttribute('aria-invalid', 'false')
+  await expect(page.getByRole('alert')).toHaveCount(0)
   await page.getByRole('button', { name: '进入影展' }).click()
   await expect(page.locator('.photo-wall img').first()).toBeVisible()
 })

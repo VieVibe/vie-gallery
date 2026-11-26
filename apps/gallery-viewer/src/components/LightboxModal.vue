@@ -37,6 +37,11 @@ const emit = defineEmits<{
 const dialog = ref<HTMLDialogElement | null>(null)
 const closeButton = ref<HTMLButtonElement | null>(null)
 const mainImage = ref<HTMLImageElement | null>(null)
+const imageViewport = ref<HTMLElement | null>(null)
+const zoomButton = ref<HTMLButtonElement | null>(null)
+const zoomed = ref(false)
+const imageRatio = ref(1)
+const arrivalDirection = ref(0)
 const photo = computed(() => props.photos[props.currentIndex])
 const isOpen = computed(() => props.show && !!photo.value)
 const totalPhotos = computed(() => Math.max(props.photos.length, props.total ?? 0))
@@ -95,6 +100,7 @@ function preloadNeighbours() {
 }
 
 function resetImage() {
+  zoomed.value = false
   sourceIndex.value = 0
   imageKey.value++
   status.value = sources.value.length ? 'loading' : 'error'
@@ -109,6 +115,8 @@ watch(() => [isOpen.value, props.currentIndex, ...sources.value], () => {
 
 function onImageLoad(event: Event) {
   if (!isOpen.value || event.currentTarget !== mainImage.value) return
+  const image = event.currentTarget as HTMLImageElement
+  imageRatio.value = image.naturalWidth / image.naturalHeight
   status.value = 'ready'
   preloadNeighbours()
 }
@@ -126,6 +134,32 @@ function retry() {
   closeButton.value?.focus({ preventScroll: true })
   resetImage()
 }
+
+async function toggleZoom() {
+  const viewport = imageViewport.value
+  if (!viewport || status.value !== 'ready') return
+  zoomed.value = !zoomed.value
+  await nextTick()
+  if (zoomed.value) {
+    viewport.scrollLeft = (viewport.scrollWidth - viewport.clientWidth) / 2
+    viewport.scrollTop = (viewport.scrollHeight - viewport.clientHeight) / 2
+    viewport.focus({ preventScroll: true })
+  } else {
+    zoomButton.value?.focus({ preventScroll: true })
+  }
+}
+
+let drag: { id: number; x: number; y: number; left: number; top: number } | null = null
+function beginPan(event: PointerEvent) {
+  const viewport = imageViewport.value
+  if (!zoomed.value || !viewport || !event.isPrimary || event.button !== 0) return
+  drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop }
+  viewport.setPointerCapture(event.pointerId)
+}
+function pan(event: PointerEvent) {
+  if (!drag || event.pointerId !== drag.id || !imageViewport.value) return
+  imageViewport.value.scrollTo(drag.left + drag.x - event.clientX, drag.top + drag.y - event.clientY)
+}
 function select(index: number) {
   if (index >= 0 && index < props.photos.length && index !== props.currentIndex) emit('select', index)
   else if (index === props.currentIndex + 1 && nextPageNeeded.value && !props.loadingMore) emit('load-next', index)
@@ -138,6 +172,11 @@ function focusableElements() {
 }
 function handleKeyDown(event: KeyboardEvent) {
   if (!isOpen.value || event.altKey || event.ctrlKey || event.metaKey) return
+  // The focused detail viewport uses native arrow-key scrolling in both axes.
+  if (zoomed.value && event.target === imageViewport.value && event.key.startsWith('Arrow')) {
+    event.stopPropagation()
+    return
+  }
   if (event.key === 'Tab') {
     const elements = focusableElements()
     const first = elements[0]
@@ -219,7 +258,8 @@ watch(isOpen, async open => {
 }, { immediate: true, flush: 'post' })
 
 // A moving thumbnail window or disabled boundary arrow may remove the focused control.
-watch(() => props.currentIndex, async () => {
+watch(() => props.currentIndex, async (index, previous) => {
+  arrivalDirection.value = Math.sign(index - previous)
   await nextTick()
   if (isOpen.value && (!dialog.value?.contains(document.activeElement) ||
     document.activeElement?.matches(':disabled'))) closeButton.value?.focus({ preventScroll: true })
@@ -230,6 +270,7 @@ onBeforeUnmount(() => {
 })
 
 function startGesture(event: PointerEvent) {
+  if (zoomed.value) return
   if (!event.isPrimary) {
     gesture = null
     return
@@ -282,6 +323,11 @@ function fallbackPreview(event: Event, thumbnailUrl?: string | null) {
           <span class="index-divider"> / </span>{{ totalPhotos }}<span class="sr-only"> 张</span>
         </div>
         <div class="topbar-actions">
+          <button ref="zoomButton" class="zoom-button" type="button" :disabled="status !== 'ready'"
+            :aria-label="zoomed ? '还原整张照片' : '放大照片'" :title="zoomed ? '还原整张照片' : '放大照片'" @click="toggleZoom">
+            <Icon :name="zoomed ? 'zoom-out' : 'zoom-in'" :size="18" />
+            <span>{{ zoomed ? '还原' : '放大' }}</span>
+          </button>
           <a
             v-if="allowDownload && photo.mediumUrl"
             :href="photo.mediumUrl"
@@ -297,10 +343,12 @@ function fallbackPreview(event: Event, thumbnailUrl?: string | null) {
             <Icon name="x" :size="20" />
           </button>
         </div>
+        <span class="reading-track" aria-hidden="true"><i :style="{ transform: 'scaleX(' + (currentIndex + 1) / totalPhotos + ')' }" /></span>
       </header>
 
       <div
         class="lightbox-stage"
+        :class="{ 'detail-stage': zoomed }"
         @pointerdown="startGesture"
         @pointermove="moveGesture"
         @pointerup="endGesture"
@@ -309,7 +357,11 @@ function fallbackPreview(event: Event, thumbnailUrl?: string | null) {
         <button type="button" class="nav-btn prev-btn" :disabled="currentIndex === 0" aria-label="上一张" @click="select(currentIndex - 1)">
           <Icon name="arrow-left" :size="24" />
         </button>
-        <div class="image-wrapper" :aria-busy="status === 'loading'">
+        <div ref="imageViewport" class="image-wrapper" :class="{ 'is-zoomed': zoomed }"
+          :style="{ '--image-ratio': imageRatio, '--arrival-x': arrivalDirection * 12 + 'px' }"
+          :role="zoomed ? 'region' : undefined" :aria-label="zoomed ? '照片细节' : undefined"
+          :tabindex="zoomed ? 0 : undefined" :aria-busy="status === 'loading'"
+          @pointerdown="beginPan" @pointermove="pan" @lostpointercapture="drag = null">
           <img
             v-if="(photo.previewUrl || photo.thumbnailUrl) && status === 'loading'"
             :key="'preview-' + imageKey"
@@ -376,7 +428,7 @@ function fallbackPreview(event: Event, thumbnailUrl?: string | null) {
             />
           </button>
         </nav>
-        <p :id="helpId" class="sr-only">左右方向键切换照片，Home 跳到首张，End 跳到末张，Esc 关闭。触屏可左右滑动切换。</p>
+        <p :id="helpId" class="sr-only">{{ zoomed ? '拖动照片或在照片上使用方向键查看细节。' : '左右方向键或左右滑动切换照片，Home 跳到首张，End 跳到已加载的末张。' }}Esc 关闭。</p>
       </footer>
     </dialog>
   </Teleport>
@@ -407,12 +459,20 @@ function fallbackPreview(event: Event, thumbnailUrl?: string | null) {
 }
 .lightbox-overlay::backdrop { background: #171d1ae6; }
 .lightbox-topbar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
 }
+.reading-track { position: absolute; bottom: 0; inset-inline: 16px; height: 2px; background: currentColor; color: #39453c; }
+.reading-track i { display: block; height: 100%; background: #bdd7bb; transform-origin: left; }
+.light-scene .reading-track { color: #d2dfcf; }
+.light-scene .reading-track i { background: #436f52; }
+.zoom-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 44px; min-height: 44px; border-radius: 24px; color: inherit; font-size: .875rem; }
+.zoom-button:disabled { opacity: .45; }
+.zoom-button:is(:focus-visible, :hover):not(:disabled) { background: #87968926; }
 .photo-indicator { font: 12px var(--font-mono); font-variant-numeric: tabular-nums; color: #8f9c91; letter-spacing: .04em; }
 .index-current { color: #f3f3ec; font-weight: 600; }
 .index-divider { margin: 0 4px; }
@@ -445,11 +505,20 @@ button:focus-visible, a:focus-visible { outline: 2px solid #a0c5b2; outline-offs
   padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
   touch-action: pan-y pinch-zoom;
 }
-.image-wrapper { position: relative; width: 100%; height: 100%; min-height: 0; display: grid; place-items: center; }
+.image-wrapper { position: relative; width: 100%; height: 100%; min-height: 0; min-width: 0; display: grid; place-items: center; }
+.detail-stage { touch-action: pinch-zoom; }
+.image-wrapper.is-zoomed { display: flex; overflow: auto; overscroll-behavior: contain; container-type: size; touch-action: pinch-zoom; cursor: grab; }
+.image-wrapper.is-zoomed:active { cursor: grabbing; }
+.image-wrapper.is-zoomed:focus-visible { outline: 2px solid #7b9d88; outline-offset: -2px; }
+.is-zoomed .main-image.is-ready { flex: none; width: min(200cqw, calc(200cqh * var(--image-ratio))); height: auto; margin: auto; animation: none; }
 .image-preview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: .68; }
-.main-image { position: relative; width: 100%; height: 100%; min-height: 0; object-fit: contain; opacity: 0; transition: opacity .4s ease; }
-.main-image.is-ready { opacity: 1; animation: image-arrive .55s cubic-bezier(.2,.75,.2,1); }
-@keyframes image-arrive { from { transform: translateY(5px) scale(.995); } to { transform: translateY(0) scale(1); } }
+.main-image { position: relative; width: 100%; height: 100%; min-height: 0; object-fit: contain; opacity: 0; }
+.main-image.is-ready { opacity: 1; }
+@media (prefers-reduced-motion: no-preference) {
+  .main-image.is-ready { animation: image-arrive .22s cubic-bezier(.2,.75,.2,1); }
+  .reading-track i { transition: transform .22s ease-out; }
+  @keyframes image-arrive { from { opacity: .75; transform: translateX(var(--arrival-x)); } to { opacity: 1; transform: none; } }
+}
 .nav-btn { width: 44px; height: 44px; border-radius: 50%; }
 .nav-btn:disabled { opacity: 0.25; cursor: default; }
 .loading-status { position: absolute; inset: 0; display: grid; place-items: end center; padding-bottom: 18px; pointer-events: none; }
@@ -458,10 +527,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid #a0c5b2; outline-offs
 .image-message p { margin: 0 0 12px; }
 .message-detail { color: #b4c0b6; font-size: 13px; }
 .lightbox-bottombar { min-width: 0; padding: 22px 16px max(24px, env(safe-area-inset-bottom)); text-align: center; }
-.photo-title { margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 20px/1.5 var(--font-serif); color: #f3f3ec; }
+.photo-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin: 0 0 6px; overflow: hidden; overflow-wrap: anywhere; text-wrap: balance; font: 400 20px/1.5 var(--font-serif); color: #f3f3ec; }
 .photo-meta { font-size: 11px; color: #b4c0b6; font-variant-numeric: tabular-nums; }
 .thumbnail-nav { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 18px; }
-.thumbnail-btn { flex: 0 0 48px; position: relative; display: grid; place-items: center; width: 48px; height: 40px; overflow: hidden; padding: 0; border: 2px solid transparent; border-radius: 2px; background: #222a25; color: #b4c0b6; cursor: pointer; opacity: .48; transition: opacity .2s, border-color .2s; }
+.thumbnail-btn { flex: 0 0 48px; position: relative; display: grid; place-items: center; width: 48px; height: 44px; overflow: hidden; padding: 0; border: 2px solid transparent; border-radius: 2px; background: #222a25; color: #b4c0b6; cursor: pointer; opacity: .48; transition: opacity .2s, border-color .2s; }
 .thumbnail-btn[aria-current='true'] { border-color: #bfd5c7; opacity: 1; }.thumbnail-btn:hover { opacity: 1; }
 .thumbnail-btn img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .thumbnail-btn img[hidden] { display: none; }

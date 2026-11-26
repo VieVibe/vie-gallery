@@ -30,6 +30,10 @@ withDefaults(defineProps<Props>(), {
   >
     <g v-if="name === 'play'"><path d="m8 5 11 7-11 7V5Z" /></g>
     <g v-else-if="name === 'pause'"><path d="M8 5v14M16 5v14" /></g>
+    <g v-else-if="name === 'zoom-in' || name === 'zoom-out'">
+      <circle cx="10" cy="10" r="6.5" /><path d="m15 15 5.5 5.5M7 10h6" />
+      <path v-if="name === 'zoom-in'" d="M10 7v6" />
+    </g>
     <g v-else-if="name === 'download'"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4" /></g>
     <!-- 3D Cube -->
     <g v-else-if="name === '3d' || name === 'cube'">

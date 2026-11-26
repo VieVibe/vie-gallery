@@ -109,6 +109,17 @@ const storedViewMode = (() => {
 })()
 const initialSpatial = isConfigPreview() || (!creatorPreview && storedViewMode === '3d')
 const viewMode = ref<ViewerViewMode>(initialSpatial ? '3d' : '2d')
+const compactAlbum = ref(false)
+let albumScrollPosition = 0
+watch(viewMode, async (mode, previous) => {
+  if (isEmbedPreview()) return
+  if (previous === '2d') {
+    albumScrollPosition = window.scrollY
+    return
+  }
+  await nextTick()
+  if (mode === viewMode.value) window.scrollTo({ top: albumScrollPosition, behavior: 'instant' })
+})
 const showEarlyAlbum = computed(() =>
   viewMode.value === '2d' && !isEmbedPreview() && viewer.state.value === 'loading' &&
   viewer.gallery.value?.accessState === 'READY' && !!viewer.gallery.value.cover
@@ -831,6 +842,7 @@ function resetView() {
       :error="viewer.error.value"
       :gallery-title="viewer.gallery.value?.title"
       @unlock="handleUnlock"
+      @edit="viewer.error.value = null"
     />
 
     <!-- 3. Admin 嵌入预览：草稿/未公开时仍渲染 WebGL 沙盒 -->
@@ -1005,6 +1017,7 @@ function resetView() {
 
       <AlbumPresentation
         v-else
+        v-model:compact="compactAlbum"
         :gallery="viewer.gallery.value"
         :photos="viewer.photos.value"
         :total="albumTotal"
@@ -1022,6 +1035,9 @@ function resetView() {
         :show="showShareSheet"
         :gallery-title="viewer.gallery.value?.title || ''"
         :photo-count="albumTotal"
+        :gallery-cover="viewer.gallery.value?.cover"
+        :first-photo="viewer.photos.value[0]"
+        :visibility="viewer.gallery.value?.visibility"
         @close="showShareSheet = false"
       />
     </div>

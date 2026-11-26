@@ -4,6 +4,7 @@ import type { Workspace } from '@vie/gallery-contracts'
 import { apiFetch } from '../api'
 import { useAuth } from '../composables/useAuth'
 import { useToast } from '../composables/useToast'
+import Icon from './Icon.vue'
 
 const { currentUser, tenantName, switchWorkspace } = useAuth()
 const toast = useToast()
@@ -57,28 +58,30 @@ watch(() => currentUser.value?.user?.id, () => {
 
 <template>
   <div class="workspace-switcher" :aria-busy="loading || switching">
-    <label for="active-workspace">当前工作区</label>
     <div class="workspace-picker">
-      <select id="active-workspace" :value="activeId" :disabled="loading || switching" @change="selectWorkspace">
+      <Icon name="folder" :size="16" aria-hidden="true" />
+      <select id="active-workspace" aria-label="当前工作区" :value="activeId" :disabled="loading || switching" @change="selectWorkspace">
         <option v-if="!workspaces.some(workspace => workspace.id === activeId)" :value="activeId">{{ tenantName }}</option>
         <option v-for="workspace in workspaces" :key="workspace.id" :value="workspace.id">
           {{ workspace.name }} · {{ roleLabels[workspace.role] }}
         </option>
       </select>
-      <button type="button" :disabled="loading || switching" @click="loadWorkspaces">刷新列表</button>
+      <button type="button" title="刷新列表" aria-label="刷新列表" :disabled="loading || switching" @click="loadWorkspaces">
+        <Icon name="refresh" :size="14" :class="{ spin: loading }" />
+      </button>
     </div>
     <p v-if="switching" role="status">正在切换工作区…</p>
     <p v-else-if="error" role="alert">{{ error }}</p>
-    <p v-else>切换工作区，查看自己创建或受邀协作的空间。</p>
   </div>
 </template>
 
 <style scoped>
-.workspace-switcher { margin-top: 24px; max-width: 520px; }
-label { display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 13px; }
-.workspace-picker { display: flex; align-items: center; gap: 12px; }
-select { min-width: 0; flex: 1; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg-surface); color: var(--text-primary); font: inherit; font-size: 14px; }
-button { flex-shrink: 0; min-height: 44px; color: var(--brand-deep); font-size: 13px; }
+.workspace-switcher { min-width: 0; max-width: 100%; }
+.workspace-picker { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; color: var(--text-secondary); }
+.workspace-picker > svg { flex: none; }
+select { min-width: 0; max-width: 100%; min-height: 44px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; font: inherit; font-size: 13px; text-overflow: ellipsis; cursor: pointer; }
+button { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; color: var(--text-secondary); }
+button:hover:enabled { color: var(--brand-deep); background: var(--mint-soft); }
 p { margin-top: 8px; color: var(--text-secondary); font-size: 12px; line-height: 1.7; }
 p[role="alert"] { color: var(--status-error, #943d2c); }
 </style>
